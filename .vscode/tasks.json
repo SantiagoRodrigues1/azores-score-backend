@@ -1,0 +1,16 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "backend-jest-validation",
+			"type": "shell",
+			"command": "node",
+			"args": [
+				".\\node_modules\\jest\\bin\\jest.js",
+				"--runInBand",
+				"--color=false"
+			],
+			"isBackground": false
+		}
+	]
+}
