@@ -6,8 +6,8 @@ const logger = require('../utils/logger');
 const connectDB = async () => {
   const uri = getMongoUri();
   if (!uri) {
-    logger.error('No MongoDB URI provided');
-    throw new Error('No MongoDB URI provided');
+    logger.error('❌ MONGO_URI não está definida nas variáveis de ambiente. A encerrar o processo.');
+    process.exit(1);
   }
 
   const maxRetries = parseInt(process.env.DB_CONNECT_RETRIES || '5', 10);
@@ -16,16 +16,16 @@ const connectDB = async () => {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
-      logger.info('MongoDB connected');
+      logger.info('✅ Conectado ao MongoDB Atlas - AzoresScorepap');
       return;
     } catch (err) {
-      logger.error(`MongoDB connection attempt ${attempt} failed: ${err.message}`);
+      logger.error(`❌ Falha ao conectar ao MongoDB Atlas (tentativa ${attempt}/${maxRetries}): ${err.message}`);
       if (attempt < maxRetries) {
         const delay = baseDelay * Math.pow(2, attempt - 1);
         logger.info(`Retrying MongoDB connection in ${delay}ms...`);
         await new Promise((res) => setTimeout(res, delay));
       } else {
-        logger.error('Exceeded maximum MongoDB connection attempts');
+        logger.error('❌ Não foi possível conectar ao MongoDB Atlas após múltiplas tentativas. A encerrar o processo.');
         process.exit(1);
       }
     }
@@ -38,13 +38,18 @@ let dbClient;
 
 async function getClient() {
   if (!dbClient) {
+    const uri = getMongoUri();
+    if (!uri) {
+      logger.error('❌ MONGO_URI não está definida nas variáveis de ambiente. A encerrar o processo.');
+      process.exit(1);
+    }
     if (!mongoClient) {
-      mongoClient = new MongoClient(getMongoUri());
+      mongoClient = new MongoClient(uri);
     }
 
     await mongoClient.connect();
     dbClient = mongoClient;
-    logger.debug('MongoDB native client connected');
+    logger.debug('✅ MongoDB Atlas native client conectado');
   }
   return dbClient;
 }
