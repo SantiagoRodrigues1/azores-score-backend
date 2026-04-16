@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "seed:azores-standings": "node scripts/seedAzoresScoreStandings.js",
+    "seed:atlas": "node scripts/migrateToAtlas.js",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "start": "node server.js"

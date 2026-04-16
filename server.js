@@ -5,6 +5,7 @@ const path = require('path');
 const { loadEnv } = require('./config/env');
 const logger = require('./utils/logger');
 const { connectDB, closeClient } = require('./config/db');
+const { runAtlasSeed } = require('./services/atlasSeeder');
 
 const billingController = require('./controllers/billingController');
 const authController = require('./controllers/authController');
@@ -194,6 +195,11 @@ async function startServer() {
     } catch (err) {
       logger.error('MongoDB connection failed:', err.message);
     }
+
+    // ── Seed automático local → Atlas (apenas na primeira execução em produção) ──
+    // Só corre se MONGO_LOCAL_URI e MONGO_ATLAS_URI estiverem definidas.
+    // É idempotente: se já foi feito antes, não faz nada.
+    await runAtlasSeed();
 
     const app = createApp();
     const PORT = process.env.PORT || 3000;
