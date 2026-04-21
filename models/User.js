@@ -8,7 +8,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   avatar: { type: String, default: null },
-  role: { type: String, enum: ['fan', 'referee', 'club_manager', 'team_manager', 'admin'], default: 'fan' },
+  role: { type: String, enum: ['fan', 'referee', 'club_manager', 'team_manager', 'journalist', 'admin'], default: 'fan' },
   plan: { type: String, enum: ['free', 'club_manager', 'premium'], default: function defaultPlan() { return getDefaultPlanForRole(this.role); } },
   stripeCustomerId: { type: String, default: null, index: true, sparse: true },
   stripeSubscriptionId: { type: String, default: null, index: true, sparse: true },

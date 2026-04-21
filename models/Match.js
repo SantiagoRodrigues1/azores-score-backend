@@ -72,6 +72,10 @@ const matchSchema = new mongoose.Schema({
     assistant2: { type: mongoose.Schema.Types.ObjectId, ref: 'Referee', default: null },
     fourthReferee: { type: mongoose.Schema.Types.ObjectId, ref: 'Referee', default: null }
   },
+  refereeTeam: [{
+    referee: { type: mongoose.Schema.Types.ObjectId, ref: 'Referee', required: true },
+    tipo: { type: String, required: true }
+  }],
   status: {
     type: String,
     enum: ['scheduled', 'live', 'halftime', 'second_half', 'finished', 'postponed', 'cancelled'],
@@ -120,5 +124,6 @@ matchSchema.index({ date: 1 });
 matchSchema.index({ status: 1 });
 matchSchema.index({ homeTeam: 1, awayTeam: 1 });
 matchSchema.index({ competition: 1 });
+matchSchema.index({ 'refereeTeam.referee': 1 });
 
 module.exports = mongoose.model('Match', matchSchema);

@@ -713,9 +713,29 @@ async function updatePlayerField(playerId, field, value) {
   return mapPlayerDocument(updatedDocument, teamMeta);
 }
 
+async function findLegacyPlayersForClubName(clubName) {
+  if (!clubName || typeof clubName !== 'string') {
+    return [];
+  }
+
+  for (const source of TEAM_DATABASES) {
+    try {
+      const team = await loadTeamByName(clubName, source.campeonato);
+      if (team && team.players && team.players.length > 0) {
+        return team.players.map((player) => mapPlayerDocument(player, team));
+      }
+    } catch (_error) {
+      continue;
+    }
+  }
+
+  return [];
+}
+
 module.exports = {
   listTeams,
   findPlayersForTeamName,
+  findLegacyPlayersForClubName,
   getProtectedTeamRoster,
   listPlayersByTeamName,
   getPlayerDetails,

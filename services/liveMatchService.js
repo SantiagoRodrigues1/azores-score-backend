@@ -456,19 +456,6 @@ class LiveMatchService {
         return true;
       }
 
-      // APPROACH 1: Se managerId está definido, validar contra ele
-      if (match.managerId) {
-        const managerIdStr = match.managerId.toString();
-        const userIdStr = userId.toString();
-
-        if (managerIdStr === userIdStr) {
-          return true;
-        }
-
-        throw new Error('Manager não está autorizado para gerenciar este jogo');
-      }
-
-      // APPROACH 2: Fallback se managerId não estiver definido
       // Validar comparando user.assignedTeam com homeTeam/awayTeam
       const user = await mongoose.model('User').findById(userId);
       if (!user) {

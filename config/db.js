@@ -16,16 +16,16 @@ const connectDB = async () => {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       await mongoose.connect(uri, { serverSelectionTimeoutMS: 5000 });
-      logger.info('✅ Conectado ao MongoDB Atlas - AzoresScorepap');
+      logger.info('✅ Conectado ao MongoDB - AzoresScore');
       return;
     } catch (err) {
-      logger.error(`❌ Falha ao conectar ao MongoDB Atlas (tentativa ${attempt}/${maxRetries}): ${err.message}`);
+      logger.error(`❌ Falha ao conectar ao MongoDB (tentativa ${attempt}/${maxRetries}): ${err.message}`);
       if (attempt < maxRetries) {
         const delay = baseDelay * Math.pow(2, attempt - 1);
         logger.info(`Retrying MongoDB connection in ${delay}ms...`);
         await new Promise((res) => setTimeout(res, delay));
       } else {
-        logger.error('❌ Não foi possível conectar ao MongoDB Atlas após múltiplas tentativas. A encerrar o processo.');
+        logger.error('❌ Não foi possível conectar ao MongoDB após múltiplas tentativas. A encerrar o processo.');
         process.exit(1);
       }
     }
@@ -49,7 +49,7 @@ async function getClient() {
 
     await mongoClient.connect();
     dbClient = mongoClient;
-    logger.debug('✅ MongoDB Atlas native client conectado');
+    logger.debug('✅ MongoDB native client conectado');
   }
   return dbClient;
 }

@@ -52,6 +52,7 @@ router.post('/matches/:id/events', adminMatchController.addMatchEvent);
 router.delete('/matches/:id', adminMatchController.deleteMatch);
 
 // ==================== REFEREES ====================
+router.get('/referees/types', adminRefereeController.getRefereeTypes);
 router.get('/referees', adminRefereeController.getAllReferees);
 router.post('/referees', adminRefereeController.createReferee);
 router.get('/referees/stats', adminRefereeController.getRefereesStats);

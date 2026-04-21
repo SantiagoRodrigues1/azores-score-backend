@@ -3,6 +3,14 @@ const Referee = require('../models/Referee');
 const logger = require('../utils/logger');
 
 /**
+ * GET /api/admin/referees/types
+ * Lista os 10 tipos de árbitro disponíveis
+ */
+exports.getRefereeTypes = async (req, res) => {
+  res.json({ success: true, data: Referee.REFEREE_TYPES });
+};
+
+/**
  * GET /api/admin/referees
  * Lista todos os árbitros
  */
@@ -54,7 +62,7 @@ exports.getAllReferees = async (req, res) => {
  */
 exports.createReferee = async (req, res) => {
   try {
-    const { name, age, association, email, phone, license, photo } = req.body;
+    const { name, age, association, email, phone, license, photo, tipo, userId } = req.body;
 
     if (!name) {
       return res.status(400).json({
@@ -71,6 +79,8 @@ exports.createReferee = async (req, res) => {
       phone: phone || null,
       license: license || null,
       photo: photo || null,
+      tipo: tipo || 'Árbitro Principal',
+      userId: userId || null,
       status: 'active'
     });
 

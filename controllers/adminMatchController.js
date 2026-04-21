@@ -2,6 +2,7 @@
 const Match = require('../models/Match');
 const Club = require('../models/Club');
 const Competition = require('../models/Competition');
+const Referee = require('../models/Referee');
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 
@@ -63,7 +64,7 @@ exports.getAllMatches = async (req, res) => {
  */
 exports.createMatch = async (req, res) => {
   try {
-    const { homeTeam, awayTeam, date, time, competition, stadium, referee } = req.body;
+    const { homeTeam, awayTeam, date, time, competition, stadium, referee, refereeTeam } = req.body;
 
     if (!homeTeam || !awayTeam || !date) {
       return res.status(400).json({
@@ -76,6 +77,33 @@ exports.createMatch = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'A equipa de casa não pode ser a mesma que a visitante'
+      });
+    }
+
+    // Validar refereeTeam (4 árbitros obrigatórios)
+    if (!refereeTeam || !Array.isArray(refereeTeam) || refereeTeam.length !== 4) {
+      return res.status(400).json({
+        success: false,
+        message: 'É obrigatório selecionar exatamente 4 árbitros para o jogo'
+      });
+    }
+
+    // Validar que cada entrada tem referee e tipo
+    for (const entry of refereeTeam) {
+      if (!entry.referee || !entry.tipo) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cada árbitro deve ter um ID e um tipo/função atribuído'
+        });
+      }
+    }
+
+    // Validar que não há árbitros duplicados
+    const refereeIds = refereeTeam.map(r => r.referee);
+    if (new Set(refereeIds).size !== refereeIds.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'Não pode atribuir o mesmo árbitro mais de uma vez ao jogo'
       });
     }
 
@@ -109,6 +137,17 @@ exports.createMatch = async (req, res) => {
       }
     }
 
+    // Mapear refereeTeam para o campo legacy `referees` (retrocompatibilidade)
+    const refereesLegacy = {};
+    const mainRef = refereeTeam.find(r => r.tipo === 'Árbitro Principal');
+    const ass1 = refereeTeam.find(r => r.tipo === 'Árbitro Assistente 1');
+    const ass2 = refereeTeam.find(r => r.tipo === 'Árbitro Assistente 2');
+    const fourth = refereeTeam.find(r => r.tipo === 'Quarto Árbitro');
+    if (mainRef) refereesLegacy.main = mainRef.referee;
+    if (ass1) refereesLegacy.assistant1 = ass1.referee;
+    if (ass2) refereesLegacy.assistant2 = ass2.referee;
+    if (fourth) refereesLegacy.fourthReferee = fourth.referee;
+
     const newMatch = new Match({
       homeTeam,
       awayTeam,
@@ -116,8 +155,9 @@ exports.createMatch = async (req, res) => {
       time,
       competition: competitionId,
       stadium,
-      referee,
-      referees: referee ? { main: referee } : undefined,
+      referee: mainRef ? mainRef.referee : (referee || null),
+      referees: refereesLegacy,
+      refereeTeam,
       status: 'scheduled'
     });
 
@@ -126,6 +166,7 @@ exports.createMatch = async (req, res) => {
     // Popular antes de retornar
     await newMatch.populate('homeTeam', 'name equipa');
     await newMatch.populate('awayTeam', 'name equipa');
+    await newMatch.populate('refereeTeam.referee', 'name tipo');
 
     res.status(201).json({
       success: true,
@@ -156,6 +197,7 @@ exports.getMatchById = async (req, res) => {
       .populate({ path: 'referees.assistant1', select: 'name' })
       .populate({ path: 'referees.assistant2', select: 'name' })
       .populate({ path: 'referees.fourthReferee', select: 'name' })
+      .populate({ path: 'refereeTeam.referee', select: 'name tipo photo' })
       .populate('referee')
       .populate('competition')
       .populate('events.player');
@@ -219,7 +261,7 @@ exports.getMatchById = async (req, res) => {
 exports.updateMatch = async (req, res) => {
   try {
     const { id } = req.params;
-    const { date, time, stadium, referee, attendance, notes } = req.body;
+    const { date, time, stadium, referee, attendance, notes, refereeTeam } = req.body;
 
     const match = await Match.findById(id);
     if (!match) {
@@ -235,6 +277,24 @@ exports.updateMatch = async (req, res) => {
     if (referee) match.referee = referee;
     if (attendance) match.attendance = attendance;
     if (notes) match.notes = notes;
+
+    // Atualizar equipa de arbitragem se fornecida
+    if (refereeTeam && Array.isArray(refereeTeam) && refereeTeam.length === 4) {
+      match.refereeTeam = refereeTeam;
+      // Atualizar campo legacy
+      const mainRef = refereeTeam.find(r => r.tipo === 'Árbitro Principal');
+      const ass1 = refereeTeam.find(r => r.tipo === 'Árbitro Assistente 1');
+      const ass2 = refereeTeam.find(r => r.tipo === 'Árbitro Assistente 2');
+      const fourth = refereeTeam.find(r => r.tipo === 'Quarto Árbitro');
+      match.referees = {
+        main: mainRef ? mainRef.referee : null,
+        assistant1: ass1 ? ass1.referee : null,
+        assistant2: ass2 ? ass2.referee : null,
+        fourthReferee: fourth ? fourth.referee : null,
+      };
+      if (mainRef) match.referee = mainRef.referee;
+    }
+
     match.updatedAt = new Date();
 
     await match.save();
@@ -395,45 +455,56 @@ exports.deleteMatch = async (req, res) => {
 
 /**
  * PUT /api/admin/matches/:id/referees
- * Atribui árbitros (main, assistant1, assistant2, fourthReferee) ao jogo
+ * Atribui árbitros ao jogo (novo formato com refereeTeam + retrocompatibilidade)
  */
 exports.assignReferees = async (req, res) => {
   try {
     const { id } = req.params;
-    const { main, assistant1, assistant2, fourthReferee } = req.body;
-
-    if (!main || !assistant1 || !assistant2 || !fourthReferee) {
-      return res.status(400).json({
-        success: false,
-        message: 'Devem ser fornecidos os 4 árbitros: main, assistant1, assistant2, fourthReferee'
-      });
-    }
+    const { main, assistant1, assistant2, fourthReferee, refereeTeam } = req.body;
 
     const match = await Match.findById(id);
     if (!match) {
       return res.status(404).json({ success: false, message: 'Jogo não encontrado' });
     }
 
-    match.referees = {
-      main,
-      assistant1,
-      assistant2,
-      fourthReferee
-    };
+    // Novo formato: refereeTeam array com 4 entradas
+    if (refereeTeam && Array.isArray(refereeTeam) && refereeTeam.length === 4) {
+      match.refereeTeam = refereeTeam;
+      const mainRef = refereeTeam.find(r => r.tipo === 'Árbitro Principal');
+      const ass1 = refereeTeam.find(r => r.tipo === 'Árbitro Assistente 1');
+      const ass2 = refereeTeam.find(r => r.tipo === 'Árbitro Assistente 2');
+      const fourth = refereeTeam.find(r => r.tipo === 'Quarto Árbitro');
+      match.referees = {
+        main: mainRef ? mainRef.referee : null,
+        assistant1: ass1 ? ass1.referee : null,
+        assistant2: ass2 ? ass2.referee : null,
+        fourthReferee: fourth ? fourth.referee : null,
+      };
+      if (mainRef) match.referee = mainRef.referee;
+    } else if (main && assistant1 && assistant2 && fourthReferee) {
+      // Formato legacy
+      match.referees = { main, assistant1, assistant2, fourthReferee };
+      match.referee = main;
+      match.refereeTeam = [
+        { referee: main, tipo: 'Árbitro Principal' },
+        { referee: assistant1, tipo: 'Árbitro Assistente 1' },
+        { referee: assistant2, tipo: 'Árbitro Assistente 2' },
+        { referee: fourthReferee, tipo: 'Quarto Árbitro' },
+      ];
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Devem ser fornecidos exatamente 4 árbitros'
+      });
+    }
 
-    // manter campo legacy `referee` apontando para o árbitro principal
-    match.referee = main;
     match.updatedAt = new Date();
-
     await match.save();
 
     // Popular antes de retornar
-    await match.populate('homeTeam', 'name');
-    await match.populate('awayTeam', 'name');
-    await match.populate({ path: 'referees.main', select: 'name' });
-    await match.populate({ path: 'referees.assistant1', select: 'name' });
-    await match.populate({ path: 'referees.assistant2', select: 'name' });
-    await match.populate({ path: 'referees.fourthReferee', select: 'name' });
+    await match.populate('homeTeam', 'name equipa');
+    await match.populate('awayTeam', 'name equipa');
+    await match.populate('refereeTeam.referee', 'name tipo');
 
     res.json({
       success: true,

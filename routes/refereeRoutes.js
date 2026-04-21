@@ -102,6 +102,18 @@ router.get(
 // ===== JOGOS =====
 
 /**
+ * GET /api/referee/my-matches
+ * Todos os jogos onde este árbitro está na equipa de arbitragem
+ */
+router.get(
+  '/my-matches',
+  verifyToken,
+  isReferee,
+  requireApprovedReferee,
+  refereeDashboardController.getMyMatches
+);
+
+/**
  * GET /api/referee/matches/upcoming
  * Próximos jogos
  */

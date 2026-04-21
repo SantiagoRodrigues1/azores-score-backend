@@ -123,17 +123,27 @@ exports.getTeamPlayers = async (req, res) => {
       });
     }
 
-    const players = await Player.find({ team: teamId })
-      .select('_id name numero number position goals assists team createdAt photo image')
+    // Mongoose Players - search by ObjectId string AND by club name
+    const players = await Player.find({
+      $or: [{ team: String(teamId) }, { team: club.name }]
+    })
+      .select('_id name nome numero number position goals assists team createdAt photo image')
       .sort({ numero: 1 })
       .lean();
 
-    const legacyPlayers = await getLegacyPlayersForClub(club);
+    // Legacy players from raw championship collections (searches all databases)
+    let legacyPlayers = [];
+    try {
+      legacyPlayers = await teamService.findLegacyPlayersForClubName(club.name);
+    } catch (legacyError) {
+      logger.error('Legacy player lookup error', legacyError.message);
+    }
 
     // Transformar resposta para formato esperado pelo frontend
     const formattedPlayers = players.map(player => ({
       id: player._id?.toString() || player._id,
       name: player.name || player.nome || '',
+      numero: String(player.numero || player.number || ''),
       number: parseInt(player.numero) || parseInt(player.number) || 0,
       position: player.position || 'Outro',
       goals: player.goals || 0,
@@ -142,22 +152,29 @@ exports.getTeamPlayers = async (req, res) => {
       teamId
     }));
 
+    // Format legacy players
+    const formattedLegacy = legacyPlayers.map(p => ({
+      id: p._id || p.id,
+      name: p.name || p.nome || '',
+      numero: String(p.numero || p.number || ''),
+      number: p.number || parseInt(String(p.numero || ''), 10) || 0,
+      position: p.position || p.posicao || 'Outro',
+      goals: p.goals || 0,
+      assists: p.assists || 0,
+      photo: p.photo || p.image || '',
+      teamId,
+      teamName: p.teamName || club.name
+    }));
+
+    // Merge and deduplicate
     const mergedPlayers = [...formattedPlayers];
-    for (const player of legacyPlayers) {
-      const key = [player.id, player.name, String(player.numero || ''), player.position].join('::');
-      const exists = mergedPlayers.some((entry) => [entry.id, entry.name, String(entry.number || ''), entry.position].join('::') === key);
+    for (const legacy of formattedLegacy) {
+      const key = [legacy.name, String(legacy.number), legacy.position].join('::').toLowerCase();
+      const exists = mergedPlayers.some(p =>
+        [p.name, String(p.number), p.position].join('::').toLowerCase() === key
+      );
       if (!exists) {
-        mergedPlayers.push({
-          id: player.id,
-          name: player.name,
-          number: parseInt(String(player.numero), 10) || 0,
-          position: player.position,
-          goals: player.goals || 0,
-          assists: player.assists || 0,
-          photo: getPlayerPhoto(player),
-          teamId,
-          teamName: player.teamName || club.name
-        });
+        mergedPlayers.push(legacy);
       }
     }
 

@@ -1,6 +1,20 @@
 // models/Referee.js
 const mongoose = require('mongoose');
 
+// 10 tipos/categorias de árbitro
+const REFEREE_TYPES = [
+  'Árbitro Principal',
+  'Assistente 1',
+  'Assistente 2',
+  '4º Árbitro',
+  'VAR',
+  'AVAR',
+  'Delegado',
+  'Observador',
+  'Cronometrista',
+  'Outro'
+];
+
 const refereeSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -31,6 +45,16 @@ const refereeSchema = new mongoose.Schema({
   license: {
     type: String,
     trim: true
+  },
+  tipo: {
+    type: String,
+    enum: REFEREE_TYPES,
+    default: 'Árbitro Principal'
+  },
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
   },
   matches: [{
     type: mongoose.Schema.Types.ObjectId,
@@ -68,5 +92,9 @@ const refereeSchema = new mongoose.Schema({
 
 refereeSchema.index({ name: 1 });
 refereeSchema.index({ status: 1 });
+refereeSchema.index({ userId: 1 });
 
-module.exports = mongoose.model('Referee', refereeSchema);
+const Referee = mongoose.model('Referee', refereeSchema);
+Referee.REFEREE_TYPES = REFEREE_TYPES;
+
+module.exports = Referee;

@@ -427,24 +427,35 @@ exports.getMatchDetails = async (req, res) => {
     
     // Adicionar flag de permissão ao response
     let canEditMatch = false;
-    
+
     if (req.user.role === 'admin') {
       canEditMatch = true;
-    } else if (isClubManagerRole(req.user.role) && match.managerId) {
-      if (match.managerId.toString() === req.user.id) {
+    } else if (isClubManagerRole(req.user.role)) {
+      const managerTeamId = req.user.assignedTeam ? String(req.user.assignedTeam) : null;
+      const homeTeamId = match.homeTeam?._id ? String(match.homeTeam._id) : null;
+      const awayTeamId = match.awayTeam?._id ? String(match.awayTeam._id) : null;
+      const isTeamInMatch = managerTeamId && (managerTeamId === homeTeamId || managerTeamId === awayTeamId);
+
+      logger.info(`[canEdit] user=${req.user.id} role=${req.user.role} assignedTeam=${managerTeamId} homeTeam=${homeTeamId} awayTeam=${awayTeamId} isTeamInMatch=${isTeamInMatch} managerId=${match.managerId}`);
+
+      // Qualquer manager cuja equipa está no jogo pode editar
+      if (isTeamInMatch) {
         canEditMatch = true;
-      } else {
-        canEditMatch = false;
       }
-    } else {
-      canEditMatch = false;
     }
 
     res.status(200).json({
       success: true,
       data: match,
       permissions: {
-        canEdit: canEditMatch
+        canEdit: canEditMatch,
+        _debug: {
+          userId: req.user.id,
+          userRole: req.user.role,
+          userAssignedTeam: req.user.assignedTeam,
+          matchHomeTeamId: match.homeTeam?._id ? String(match.homeTeam._id) : null,
+          matchAwayTeamId: match.awayTeam?._id ? String(match.awayTeam._id) : null
+        }
       }
     });
   } catch (error) {

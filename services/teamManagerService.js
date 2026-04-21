@@ -3,6 +3,7 @@ const Match = require('../models/Match');
 const Player = require('../models/Player');
 const { isClubManagerRole } = require('../utils/accessControl');
 const { parsePagination, buildPagination } = require('../utils/pagination');
+const teamService = require('./teamService');
 
 const positionOrder = ['Guarda-Redes', 'Defesa', 'Médio', 'Avançado', 'Outro'];
 
@@ -193,8 +194,9 @@ async function listTeamPlayers(user, query) {
     throw createHttpError('Equipa não encontrada', 404);
   }
 
-  const filter = { team: teamId };
-  const [players, total] = await Promise.all([
+  // Search Mongoose Player collection by ObjectId string AND by club name
+  const filter = { $or: [{ team: String(teamId) }, { team: club.name }] };
+  const [mongoosePlayers, mongooseTotal] = await Promise.all([
     Player.find(filter)
       .sort({ numero: 1, name: 1 })
       .skip(skip)
@@ -203,11 +205,39 @@ async function listTeamPlayers(user, query) {
     Player.countDocuments(filter)
   ]);
 
-  const mappedPlayers = players.map(mapPlayer);
+  // Also search legacy raw championship collections
+  const legacyPlayers = await teamService.findLegacyPlayersForClubName(club.name);
+
+  // Map and merge
+  const mappedMongoose = mongoosePlayers.map(mapPlayer);
+  const mappedLegacy = legacyPlayers.map(p => mapPlayer({
+    _id: p._id || p.id,
+    name: p.name || p.nome,
+    numero: p.numero,
+    number: p.number,
+    position: p.position || p.posicao,
+    goals: p.goals || 0,
+    assists: p.assists || 0,
+    photo: p.photo || p.image
+  }));
+
+  // Deduplicate by name+number+position
+  const mergedPlayers = [...mappedMongoose];
+  for (const legacy of mappedLegacy) {
+    const key = [legacy.name, String(legacy.number), legacy.position].join('::').toLowerCase();
+    const exists = mergedPlayers.some(p =>
+      [p.name, String(p.number), p.position].join('::').toLowerCase() === key
+    );
+    if (!exists) {
+      mergedPlayers.push(legacy);
+    }
+  }
+
+  const total = mergedPlayers.length;
 
   return {
-    data: mappedPlayers,
-    byPosition: groupPlayersByPosition(mappedPlayers),
+    data: mergedPlayers,
+    byPosition: groupPlayersByPosition(mergedPlayers),
     teamName: club.name,
     pagination: buildPagination(total, page, limit)
   };
@@ -239,17 +269,42 @@ async function getDashboard(user, query) {
 
   const { limit } = parsePagination(query, { defaultLimit: 5, maxLimit: 20 });
 
-  const [matches, players] = await Promise.all([
+  const [matches, mongoosePlayers] = await Promise.all([
     Match.find({ $or: [{ homeTeam: assignedTeam }, { awayTeam: assignedTeam }] })
       .populate('homeTeam', 'name logo colors')
       .populate('awayTeam', 'name logo colors')
       .sort({ date: 1 })
       .limit(limit)
       .lean(),
-    Player.find({ team: assignedTeam }).sort({ numero: 1, name: 1 }).lean()
+    Player.find({ $or: [{ team: String(assignedTeam) }, { team: club.name }] }).sort({ numero: 1, name: 1 }).lean()
   ]);
 
-  const mappedPlayers = players.map(mapPlayer);
+  // Also search legacy championship collections
+  const legacyPlayers = await teamService.findLegacyPlayersForClubName(club.name);
+
+  const mappedMongoose = mongoosePlayers.map(mapPlayer);
+  const mappedLegacy = legacyPlayers.map(p => mapPlayer({
+    _id: p._id || p.id,
+    name: p.name || p.nome,
+    numero: p.numero,
+    number: p.number,
+    position: p.position || p.posicao,
+    goals: p.goals || 0,
+    assists: p.assists || 0,
+    photo: p.photo || p.image
+  }));
+
+  // Merge and deduplicate
+  const mappedPlayers = [...mappedMongoose];
+  for (const legacy of mappedLegacy) {
+    const key = [legacy.name, String(legacy.number), legacy.position].join('::').toLowerCase();
+    const exists = mappedPlayers.some(p =>
+      [p.name, String(p.number), p.position].join('::').toLowerCase() === key
+    );
+    if (!exists) {
+      mappedPlayers.push(legacy);
+    }
+  }
 
   return {
     teamName: club.name,

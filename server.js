@@ -40,6 +40,7 @@ const reportRoutes = require('./routes/reportRoutes');
 const refereeRoutes = require('./routes/refereeRoutes');
 const adminRefereeRoutes = require('./routes/adminRefereeRoutes');
 const billingRoutes = require('./routes/billingRoutes');
+const journalistRoutes = require('./routes/journalistRoutes');
 
 
 // =======================
@@ -137,6 +138,7 @@ function createApp() {
   app.use('/api/referee', refereeRoutes);
 
   app.use('/api/billing', billingRoutes);
+  app.use('/api/journalist', journalistRoutes);
 
   app.use('/api/admin', adminRefereeRoutes);
   app.use('/api/admin', adminRoutes);

@@ -3,10 +3,69 @@
  * Controlador para dashboard do árbitro
  */
 const RefereeProfile = require('../models/RefereeProfile');
+const Referee = require('../models/Referee');
 const Match = require('../models/Match');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 const logger = require('../utils/logger');
+
+/**
+ * Utilitário: encontrar Referee (entity) ligado ao userId
+ */
+async function findRefereeByUserId(userId) {
+  // Primeiro tentar pelo campo userId no modelo Referee
+  let referee = await Referee.findOne({ userId });
+  if (referee) return referee;
+  // Fallback: procurar RefereeProfile e ver se existe Referee com mesmo email/nome
+  const profile = await RefereeProfile.findOne({ userId });
+  if (profile) {
+    referee = await Referee.findOne({ email: profile.email });
+    if (referee) {
+      // Ligar automaticamente para futuras queries
+      referee.userId = userId;
+      await referee.save();
+      return referee;
+    }
+  }
+  return null;
+}
+
+/**
+ * GET /api/referee/my-matches
+ * Retorna TODOS os jogos onde este árbitro está na refereeTeam
+ */
+exports.getMyMatches = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const referee = await findRefereeByUserId(userId);
+    if (!referee) {
+      return res.status(404).json({ success: false, message: 'Perfil de árbitro não encontrado' });
+    }
+
+    const matches = await Match.find({ 'refereeTeam.referee': referee._id })
+      .populate('homeTeam', 'name equipa logo')
+      .populate('awayTeam', 'name equipa logo')
+      .populate('refereeTeam.referee', 'name tipo photo')
+      .populate('competition', 'name')
+      .sort({ date: -1 })
+      .lean();
+
+    // Adicionar o tipo/função deste árbitro em cada jogo
+    const result = matches.map(m => {
+      const myEntry = m.refereeTeam?.find(r => r.referee?._id?.toString() === referee._id.toString());
+      return {
+        ...m,
+        myRole: myEntry?.tipo || null
+      };
+    });
+
+    res.json({ success: true, data: result });
+  } catch (error) {
+    logger.error('Erro ao obter jogos do árbitro', error);
+    res.status(500).json({ success: false, message: 'Erro ao obter jogos' });
+  }
+};
 
 /**
  * GET REFEREE DASHBOARD - Obter dados do dashboard
@@ -16,56 +75,59 @@ exports.getDashboard = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Obter perfil do árbitro
-    const refereeProfile = await RefereeProfile.findOne({ userId })
-      .populate('jogosHistorico', 'data hora local equipas competicao status');
+    // Tentar encontrar Referee entity ligado ao user
+    const referee = await findRefereeByUserId(userId);
 
-    if (!refereeProfile) {
+    // Obter perfil do árbitro (antigo modelo)
+    const refereeProfile = await RefereeProfile.findOne({ userId });
+
+    if (!referee && !refereeProfile) {
       return res.status(404).json({ error: 'Perfil de árbitro não encontrado' });
     }
 
-    // Próximos jogos (assumindo que Match tem campo com árbitros)
-    const proximosJogos = await Match.find({
-      arbitros: refereeProfile._id,
-      status: 'scheduled',
-      data: { $gte: new Date() }
-    })
-    .sort({ data: 1 })
-    .limit(5)
-    .lean();
+    let proximosJogos = [];
+    let historicoJogos = [];
+    let jogosTotais = 0;
 
-    // Histórico de jogos
-    const historicoJogos = await Match.find({
-      arbitros: refereeProfile._id,
-      status: 'finished'
-    })
-    .sort({ data: -1 })
-    .limit(10)
-    .lean();
+    if (referee) {
+      // Usar refereeTeam para encontrar jogos
+      proximosJogos = await Match.find({
+        'refereeTeam.referee': referee._id,
+        status: 'scheduled'
+      })
+      .populate('homeTeam', 'name equipa logo')
+      .populate('awayTeam', 'name equipa logo')
+      .populate('refereeTeam.referee', 'name tipo photo')
+      .sort({ date: 1 })
+      .limit(5)
+      .lean();
+
+      historicoJogos = await Match.find({
+        'refereeTeam.referee': referee._id,
+        status: 'finished'
+      })
+      .populate('homeTeam', 'name equipa logo')
+      .populate('awayTeam', 'name equipa logo')
+      .sort({ date: -1 })
+      .limit(10)
+      .lean();
+
+      jogosTotais = await Match.countDocuments({ 'refereeTeam.referee': referee._id });
+    }
 
     // Estatísticas
     const stats = {
-      jogosTotais: refereeProfile.jogosTotais || 0,
-      jogosEsteMes: refereeProfile.jogosEsteMes || 0,
-      relatóriosEnviados: refereeProfile.relatóriosEnviados || 0,
-      avaliacaoMedia: refereeProfile.avaliacaoMedia || 0
+      jogosTotais,
+      jogosEsteMes: refereeProfile?.jogosEsteMes || 0,
+      relatóriosEnviados: refereeProfile?.relatóriosEnviados || 0,
+      avaliacaoMedia: refereeProfile?.avaliacaoMedia || 0
     };
 
-    // Notificações não lidas
-    const notificacoes = await Notification.find({
-      userId,
-      lida: false
-    })
-    .sort({ criadoEm: -1 })
-    .limit(10)
-    .lean();
-
     res.json({
-      refereeProfile,
+      refereeProfile: refereeProfile || referee,
       proximosJogos,
       historicoJogos,
-      stats,
-      notificacoes
+      stats
     });
 
   } catch (error) {
@@ -84,26 +146,28 @@ exports.getUpcomingMatches = async (req, res) => {
     const { limit = 10, page = 1 } = req.query;
     const skip = (page - 1) * limit;
 
-    const refereeProfile = await RefereeProfile.findOne({ userId });
+    const referee = await findRefereeByUserId(userId);
     
-    if (!refereeProfile) {
+    if (!referee) {
       return res.status(404).json({ error: 'Perfil de árbitro não encontrado' });
     }
 
     const matches = await Match.find({
-      arbitros: refereeProfile._id,
-      status: 'scheduled',
-      data: { $gte: new Date() }
+      'refereeTeam.referee': referee._id,
+      status: 'scheduled'
     })
-    .sort({ data: 1 })
+    .populate('homeTeam', 'name equipa logo')
+    .populate('awayTeam', 'name equipa logo')
+    .populate('refereeTeam.referee', 'name tipo photo')
+    .populate('competition', 'name')
+    .sort({ date: 1 })
     .skip(skip)
     .limit(parseInt(limit))
     .lean();
 
     const total = await Match.countDocuments({
-      arbitros: refereeProfile._id,
-      status: 'scheduled',
-      data: { $gte: new Date() }
+      'refereeTeam.referee': referee._id,
+      status: 'scheduled'
     });
 
     res.json({
@@ -131,7 +195,10 @@ exports.getMatchDetails = async (req, res) => {
     const { matchId } = req.params;
 
     const match = await Match.findById(matchId)
-      .populate('arbitros', 'nomeCompleto numeroCartaoArbitro categoria')
+      .populate('homeTeam', 'name equipa logo')
+      .populate('awayTeam', 'name equipa logo')
+      .populate('refereeTeam.referee', 'name tipo photo')
+      .populate('competition', 'name')
       .lean();
 
     if (!match) {
@@ -222,55 +289,56 @@ exports.getStatistics = async (req, res) => {
   try {
     const userId = req.user.id;
 
+    const referee = await findRefereeByUserId(userId);
     const refereeProfile = await RefereeProfile.findOne({ userId });
     
-    if (!refereeProfile) {
+    if (!referee && !refereeProfile) {
       return res.status(404).json({ error: 'Perfil de árbitro não encontrado' });
     }
 
-    // Total de jogos
-    const jogosTotais = await Match.countDocuments({
-      arbitros: refereeProfile._id,
-      status: 'finished'
-    });
+    let jogosTotais = 0;
+    let jogosEsteMes = 0;
+    let jogos7Dias = 0;
 
-    // Jogos este mês
-    const inicioMes = new Date();
-    inicioMes.setDate(1);
-    inicioMes.setHours(0, 0, 0, 0);
-    
-    const jogosEsteMes = await Match.countDocuments({
-      arbitros: refereeProfile._id,
-      status: 'finished',
-      data: { $gte: inicioMes }
-    });
+    if (referee) {
+      jogosTotais = await Match.countDocuments({
+        'refereeTeam.referee': referee._id,
+        status: 'finished'
+      });
 
-    // Próximos 7 dias
-    const inicio7Dias = new Date();
-    const fim7Dias = new Date();
-    fim7Dias.setDate(fim7Dias.getDate() + 7);
+      const inicioMes = new Date();
+      inicioMes.setDate(1);
+      inicioMes.setHours(0, 0, 0, 0);
+      
+      jogosEsteMes = await Match.countDocuments({
+        'refereeTeam.referee': referee._id,
+        status: 'finished',
+        date: { $gte: inicioMes }
+      });
 
-    const jogos7Dias = await Match.countDocuments({
-      arbitros: refereeProfile._id,
-      status: 'scheduled',
-      data: { 
-        $gte: inicio7Dias, 
-        $lt: fim7Dias 
-      }
-    });
+      const inicio7Dias = new Date();
+      const fim7Dias = new Date();
+      fim7Dias.setDate(fim7Dias.getDate() + 7);
+
+      jogos7Dias = await Match.countDocuments({
+        'refereeTeam.referee': referee._id,
+        status: 'scheduled',
+        date: { $gte: inicio7Dias, $lt: fim7Dias }
+      });
+    }
 
     res.json({
       refereeProfile: {
-        nomeCompleto: refereeProfile.nomeCompleto,
-        categoria: refereeProfile.categoria,
-        avaliacaoMedia: refereeProfile.avaliacaoMedia
+        nomeCompleto: refereeProfile?.nomeCompleto || referee?.name,
+        categoria: refereeProfile?.categoria || referee?.tipo,
+        avaliacaoMedia: refereeProfile?.avaliacaoMedia || 0
       },
       stats: {
         jogosTotais,
         jogosEsteMes,
         jogos7Dias,
-        relatóriosEnviados: refereeProfile.relatóriosEnviados || 0,
-        avaliacaoMedia: refereeProfile.avaliacaoMedia || 0
+        relatóriosEnviados: refereeProfile?.relatóriosEnviados || 0,
+        avaliacaoMedia: refereeProfile?.avaliacaoMedia || 0
       }
     });
 
