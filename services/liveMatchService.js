@@ -4,6 +4,39 @@ const Standing = require('../models/Standing');
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 
+async function buildEventPlayerSnapshot(playerId) {
+  if (!playerId) {
+    return null;
+  }
+
+  const normalizedId = String(playerId);
+
+  if (!mongoose.Types.ObjectId.isValid(normalizedId)) {
+    return {
+      id: normalizedId,
+      name: 'Jogador',
+      number: null
+    };
+  }
+
+  const Player = mongoose.model('Player');
+  const player = await Player.findById(normalizedId).select('name number');
+
+  if (!player) {
+    return {
+      id: normalizedId,
+      name: 'Jogador',
+      number: null
+    };
+  }
+
+  return {
+    id: player._id.toString(),
+    name: player.name || 'Jogador',
+    number: typeof player.number === 'number' ? player.number : null
+  };
+}
+
 /**
  * Serviço de Gestão de Eventos de Jogo em Direto
  */
@@ -84,11 +117,17 @@ class LiveMatchService {
         if (!playerId) {
           throw new Error('Jogador marcador é obrigatório para golo');
         }
-        event.player = playerId;
+
+        const [playerSnapshot, assistSnapshot] = await Promise.all([
+          buildEventPlayerSnapshot(playerId),
+          assistId ? buildEventPlayerSnapshot(assistId) : Promise.resolve(null)
+        ]);
+
+        event.player = playerSnapshot;
 
         // Adicionar assistidor se fornecido
-        if (assistId) {
-          event.assistedBy = assistId;
+        if (assistSnapshot) {
+          event.assistedBy = assistSnapshot;
         }
 
         // Atualizar score
@@ -106,13 +145,19 @@ class LiveMatchService {
         if (!playerId) {
           throw new Error('Jogador é obrigatório para cartão');
         }
-        event.player = playerId;
+        event.player = await buildEventPlayerSnapshot(playerId);
       } else if (type === 'substitution') {
         if (!playerInId || !playerOutId) {
           throw new Error('Jogador entrada e saída são obrigatórios para substituição');
         }
-        event.playerIn = playerInId;
-        event.playerOut = playerOutId;
+
+        const [playerInSnapshot, playerOutSnapshot] = await Promise.all([
+          buildEventPlayerSnapshot(playerInId),
+          buildEventPlayerSnapshot(playerOutId)
+        ]);
+
+        event.playerIn = playerInSnapshot;
+        event.playerOut = playerOutSnapshot;
       }
 
       // Adicionar evento ao jogo
@@ -125,10 +170,7 @@ class LiveMatchService {
       // Buscar jogo atualizado para retornar com populações
       const updatedMatch = await Match.findById(matchId)
         .populate('homeTeam', 'id name logo')
-        .populate('awayTeam', 'id name logo')
-        .populate('events.player', 'name number')
-        .populate('events.playerIn', 'name number')
-        .populate('events.playerOut', 'name number');
+        .populate('awayTeam', 'id name logo');
 
       return updatedMatch;
     } catch (error) {
@@ -183,11 +225,7 @@ class LiveMatchService {
    */
   static async finishMatch(matchId, leagueName, season) {
     try {
-      const match = await Match.findByIdAndUpdate(
-        matchId,
-        { status: 'finished' },
-        { new: true }
-      )
+      const match = await Match.findById(matchId)
         .populate('homeTeam')
         .populate('awayTeam');
 
@@ -232,6 +270,13 @@ class LiveMatchService {
         leagueName,
         season
       );
+
+      await this._recalculateStandingPositions(leagueName, season);
+
+      match.status = 'finished';
+      match.updatedAt = new Date();
+      await match.save();
+
       logger.debug(`Standings updated for match ${matchId}`);
 
       return match;
@@ -264,7 +309,7 @@ class LiveMatchService {
           league: leagueName,
           season,
           team: teamName,
-          position: 0,
+          position: 1,
           played: 0,
           won: 0,
           drawn: 0,
@@ -274,6 +319,10 @@ class LiveMatchService {
           goalDifference: 0,
           points: 0
         });
+      }
+
+      if (!standing.position || standing.position < 1) {
+        standing.position = 1;
       }
 
       // Atualizar estatísticas
@@ -305,6 +354,25 @@ class LiveMatchService {
     }
   }
 
+  static async _recalculateStandingPositions(leagueName, season) {
+    const standings = await Standing.find({ league: leagueName, season })
+      .sort({ points: -1, goalDifference: -1, goalsFor: -1, team: 1 });
+
+    await Promise.all(
+      standings.map((standing, index) => {
+        const nextPosition = index + 1;
+
+        if (standing.position === nextPosition) {
+          return Promise.resolve();
+        }
+
+        standing.position = nextPosition;
+        standing.lastUpdated = new Date();
+        return standing.save();
+      })
+    );
+  }
+
   /**
    * Obtém um jogo com detalhes completos
    */
@@ -312,10 +380,7 @@ class LiveMatchService {
     try {
       const match = await Match.findById(matchId)
         .populate('homeTeam', 'id name logo colors')
-        .populate('awayTeam', 'id name logo colors')
-        .populate('events.player', 'name number position')
-        .populate('events.playerIn', 'name number position')
-        .populate('events.playerOut', 'name number position');
+        .populate('awayTeam', 'id name logo colors');
 
       if (!match) {
         throw new Error('Jogo não encontrado');

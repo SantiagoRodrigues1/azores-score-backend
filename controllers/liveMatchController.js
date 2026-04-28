@@ -108,7 +108,7 @@ exports.startMatch = async (req, res) => {
 exports.addMatchEvent = async (req, res) => {
   try {
     const { matchId } = req.params;
-    const { type, minute, playerId, playerInId, playerOutId } = req.body;
+    const { type, minute, playerId, playerInId, playerOutId, assistId } = req.body;
 
     // Validar autenticação
     if (!req.user || !req.user.id) {
@@ -171,6 +171,7 @@ exports.addMatchEvent = async (req, res) => {
       type,
       minute,
       playerId,
+      assistId,
       playerInId,
       playerOutId
     });
@@ -566,9 +567,10 @@ exports.getLineup = async (req, res) => {
     const lineup = await LiveMatchService.getLineup(matchId, teamId);
 
     if (!lineup) {
-      return res.status(404).json({
-        success: false,
-        message: 'Escalação não encontrada'
+      return res.status(200).json({
+        success: true,
+        data: null,
+        message: 'Escalacao ainda nao registada'
       });
     }
 

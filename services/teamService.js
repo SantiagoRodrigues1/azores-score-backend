@@ -22,6 +22,7 @@ const GENERIC_COLLECTIONS = new Set([
   'favoriteteams',
   'imageuploads',
   'jogadores',
+  'journalistrequests',
   'likes',
   'lineups',
   'matchreports',

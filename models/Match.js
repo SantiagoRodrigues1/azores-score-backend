@@ -8,19 +8,19 @@ const eventSchema = new mongoose.Schema({
     required: true
   },
   player: {
-    type: String,  // Store as string - can be ObjectId string or custom ID
+    type: mongoose.Schema.Types.Mixed,
     default: null
   },
   assistedBy: {
-    type: String,  // Store as string - can be ObjectId string or custom ID
+    type: mongoose.Schema.Types.Mixed,
     default: null
   },
   playerIn: {
-    type: String,  // Store as string - can be ObjectId string or custom ID
+    type: mongoose.Schema.Types.Mixed,
     default: null
   },
   playerOut: {
-    type: String,  // Store as string - can be ObjectId string or custom ID
+    type: mongoose.Schema.Types.Mixed,
     default: null
   },
   minute: {
