@@ -1,11 +1,43 @@
 // routes/favoritesRoutes.js
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const { verifyToken } = require('../middleware/auth');
 const User = require('../models/User');
 const Club = require('../models/Club');
 const FavoriteTeam = require('../models/FavoriteTeam');
+const teamService = require('../services/teamService');
 const logger = require('../utils/logger');
+
+async function resolveTeamMetadata(teamId) {
+  const normalizedTeamId = String(teamId || '').trim();
+  if (!normalizedTeamId) return null;
+
+  if (mongoose.Types.ObjectId.isValid(normalizedTeamId)) {
+    const club = await Club.findById(normalizedTeamId).lean();
+    if (club) {
+      return {
+        _id: normalizedTeamId,
+        name: club.name,
+        equipa: club.name,
+        ilha: club.island || 'Açores',
+        logo: club.logo || '🏆'
+      };
+    }
+  }
+
+  const teams = await teamService.listTeams();
+  const synthetic = teams.find((entry) => String(entry._id) === normalizedTeamId);
+  if (!synthetic) return null;
+
+  return {
+    _id: String(synthetic._id),
+    name: synthetic.name || synthetic.equipa,
+    equipa: synthetic.equipa || synthetic.name,
+    ilha: synthetic.ilha || 'Açores',
+    logo: synthetic.logo || '🏆'
+  };
+}
 
 /**
  * POST /api/user/favorites/toggle/:clubId
@@ -15,10 +47,18 @@ router.post('/toggle/:clubId', verifyToken, async (req, res) => {
   try {
     const { clubId } = req.params;
     const userId = req.user.id;
+    const normalizedTeamId = String(clubId || '').trim();
 
-    // Verify club exists
-    const club = await Club.findById(clubId);
-    if (!club) {
+    if (!normalizedTeamId) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de equipa inválido'
+      });
+    }
+
+    // Verify team exists (supports Club ObjectId and synthetic team ids)
+    const teamMeta = await resolveTeamMetadata(normalizedTeamId);
+    if (!teamMeta) {
       return res.status(404).json({
         success: false,
         message: 'Clube não encontrado'
@@ -34,36 +74,26 @@ router.post('/toggle/:clubId', verifyToken, async (req, res) => {
       });
     }
 
-    // Initialize favorites array if doesn't exist
-    if (!user.favoriteTeams) {
-      user.favoriteTeams = [];
-    }
-
     // Toggle favorite
-    const existingFavorite = await FavoriteTeam.findOne({ userId, teamId: clubId });
-    const index = user.favoriteTeams.map(String).indexOf(clubId);
-    if (index > -1) {
-      // Remove from favorites
-      user.favoriteTeams.splice(index, 1);
-      if (existingFavorite) {
-        await FavoriteTeam.deleteOne({ _id: existingFavorite._id });
-      }
-    } else {
-      // Add to favorites
-      user.favoriteTeams.push(clubId);
-      if (!existingFavorite) {
-        await FavoriteTeam.create({ userId, teamId: clubId });
-      }
-    }
+    const existingFavorite = await FavoriteTeam.findOne({ userId, teamId: normalizedTeamId });
 
-    await user.save();
+    if (existingFavorite) {
+      await FavoriteTeam.deleteOne({ _id: existingFavorite._id });
+    } else {
+      await FavoriteTeam.create({ userId, teamId: normalizedTeamId });
+    }
 
     res.json({
       success: true,
-      message: index > -1 ? 'Removido de favoritos' : 'Adicionado aos favoritos',
+      message: existingFavorite ? 'Removido de favoritos' : 'Adicionado aos favoritos',
       data: {
-        isFavorite: index < 0,
-        favoriteTeams: user.favoriteTeams
+        isFavorite: !existingFavorite,
+        team: {
+          _id: teamMeta._id,
+          name: teamMeta.name,
+          island: teamMeta.ilha,
+          logo: teamMeta.logo
+        }
       }
     });
   } catch (error) {
@@ -83,20 +113,21 @@ router.post('/toggle/:clubId', verifyToken, async (req, res) => {
 router.get('/', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
-    const favorites = await FavoriteTeam.find({ userId }).populate('teamId');
+    const favorites = await FavoriteTeam.find({ userId }).lean();
 
-    if (!favorites) {
-      return res.status(404).json({
-        success: false,
-        message: 'Utilizador não encontrado'
-      });
-    }
+    const teams = await teamService.listTeams();
+    const teamMap = new Map(teams.map((team) => [String(team._id), team]));
 
     res.json({
       success: true,
       data: favorites.map((favorite) => ({
         id: favorite._id,
-        team: favorite.teamId,
+        team: {
+          _id: String(favorite.teamId),
+          name: teamMap.get(String(favorite.teamId))?.equipa || teamMap.get(String(favorite.teamId))?.name || 'Equipa',
+          island: teamMap.get(String(favorite.teamId))?.ilha || 'Açores',
+          logo: teamMap.get(String(favorite.teamId))?.logo || '🏆'
+        },
         notifications: favorite.notifications
       }))
     });
@@ -118,6 +149,7 @@ router.get('/check/:clubId', verifyToken, async (req, res) => {
   try {
     const { clubId } = req.params;
     const userId = req.user.id;
+    const normalizedTeamId = String(clubId || '').trim();
 
     const user = await User.findById(userId);
     if (!user) {
@@ -127,7 +159,7 @@ router.get('/check/:clubId', verifyToken, async (req, res) => {
       });
     }
 
-    const favorite = await FavoriteTeam.findOne({ userId, teamId: clubId });
+    const favorite = await FavoriteTeam.findOne({ userId, teamId: normalizedTeamId });
     const isFavorite = Boolean(favorite);
 
     res.json({
@@ -146,8 +178,10 @@ router.get('/check/:clubId', verifyToken, async (req, res) => {
 
 router.put('/settings/:clubId', verifyToken, async (req, res) => {
   try {
+    const normalizedTeamId = String(req.params.clubId || '').trim();
+
     const favorite = await FavoriteTeam.findOneAndUpdate(
-      { userId: req.user.id, teamId: req.params.clubId },
+      { userId: req.user.id, teamId: normalizedTeamId },
       { notifications: req.body.notifications },
       { new: true }
     );

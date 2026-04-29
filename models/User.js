@@ -35,6 +35,17 @@ const userSchema = new mongoose.Schema({
     }
   ],
   assignedTeam: { type: mongoose.Schema.Types.ObjectId, ref: 'Club', default: null },
+
+  // ──────────────────────────────────────────────
+  // VERIFICAÇÃO DE EMAIL
+  // emailVerified    : false enquanto não confirmar
+  // emailVerifyToken : token único gerado no registo
+  // emailVerifyExpires: expiração do token (24h)
+  // ──────────────────────────────────────────────
+  emailVerified:      { type: Boolean, default: false },
+  emailVerifyToken:   { type: String,  default: null, index: true },
+  emailVerifyExpires: { type: Date,    default: null },
+
   preferences: {
     theme: { type: String, enum: ['light', 'dark', 'system'], default: 'system' }
   },
