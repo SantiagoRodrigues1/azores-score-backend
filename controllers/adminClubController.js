@@ -1,7 +1,44 @@
 // controllers/adminClubController.js
 const Club = require('../models/Club');
 const Competition = require('../models/Competition');
+const mongoose = require('mongoose');
 const logger = require('../utils/logger');
+
+function createHttpError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function isValidObjectId(value) {
+  return Boolean(value) && mongoose.Types.ObjectId.isValid(String(value));
+}
+
+function isTransactionUnsupported(error) {
+  return /Transaction numbers are only allowed on a replica set member or mongos|transactions are not supported|replica set/i.test(error?.message || '');
+}
+
+async function withOptionalTransaction(operation, fallbackOperation) {
+  const session = await mongoose.startSession();
+
+  try {
+    let result;
+
+    await session.withTransaction(async () => {
+      result = await operation(session);
+    });
+
+    return result;
+  } catch (error) {
+    if (fallbackOperation && isTransactionUnsupported(error)) {
+      return fallbackOperation();
+    }
+
+    throw error;
+  } finally {
+    await session.endSession().catch(() => {});
+  }
+}
 
 function getNormalizedColors({ colors, primaryColor, secondaryColor }) {
   if (colors && typeof colors === 'object') {
@@ -37,9 +74,13 @@ async function attachClubToCompetition(clubId, competitionId) {
     return;
   }
 
+  if (!isValidObjectId(competitionId)) {
+    throw createHttpError('ID de competição inválido');
+  }
+
   const competition = await Competition.findById(competitionId);
   if (!competition) {
-    return;
+    throw createHttpError('Competição não encontrada', 404);
   }
 
   const clubIdString = String(clubId);
@@ -66,14 +107,33 @@ async function attachClubToCompetition(clubId, competitionId) {
   await competition.save();
 }
 
+async function removeClubFromCompetitions(clubId) {
+  await Competition.updateMany(
+    {
+      $or: [
+        { teams: clubId },
+        { 'standings.team': clubId }
+      ]
+    },
+    {
+      $pull: {
+        teams: clubId,
+        standings: { team: clubId }
+      }
+    }
+  );
+}
+
 /**
  * GET /api/admin/clubs
  * Lista todos os clubes
  */
 exports.getAllClubs = async (req, res) => {
   try {
-    const { page = 1, limit = 20, island, search } = req.query;
-    const skip = (page - 1) * limit;
+    const { page = 1, limit = 20, island, search, competitionId } = req.query;
+    const parsedPage = Math.max(parseInt(page, 10) || 1, 1);
+    const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 500);
+    const skip = (parsedPage - 1) * parsedLimit;
 
     let filter = {};
     if (island) filter.island = island;
@@ -84,10 +144,31 @@ exports.getAllClubs = async (req, res) => {
       ];
     }
 
+    if (competitionId) {
+      if (!isValidObjectId(competitionId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'ID de competição inválido'
+        });
+      }
+
+      const competition = await Competition.findById(competitionId).select('teams').lean();
+      if (!competition) {
+        return res.status(404).json({
+          success: false,
+          message: 'Competição não encontrada'
+        });
+      }
+
+      filter._id = {
+        $in: competition.teams || []
+      };
+    }
+
     const clubs = await Club.find(filter)
       .populate('players', 'name position')
       .skip(skip)
-      .limit(parseInt(limit))
+      .limit(parsedLimit)
       .sort({ name: 1 });
 
     const total = await Club.countDocuments(filter);
@@ -97,9 +178,9 @@ exports.getAllClubs = async (req, res) => {
       data: clubs,
       pagination: {
         total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / limit)
+        page: parsedPage,
+        limit: parsedLimit,
+        pages: Math.ceil(total / parsedLimit)
       }
     });
   } catch (error) {
@@ -119,6 +200,7 @@ exports.getAllClubs = async (req, res) => {
 exports.createClub = async (req, res) => {
   try {
     const { name, island, stadium, foundedYear, founded, description, logo, colors, primaryColor, secondaryColor, competitionId } = req.body;
+    const normalizedCompetitionId = typeof competitionId === 'string' ? competitionId.trim() : competitionId;
 
     if (!name) {
       return res.status(400).json({
@@ -135,13 +217,30 @@ exports.createClub = async (req, res) => {
       });
     }
 
+    if (normalizedCompetitionId && !isValidObjectId(normalizedCompetitionId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de competição inválido'
+      });
+    }
+
+    if (normalizedCompetitionId) {
+      const competition = await Competition.findById(normalizedCompetitionId).select('_id').lean();
+      if (!competition) {
+        return res.status(404).json({
+          success: false,
+          message: 'Competição não encontrada'
+        });
+      }
+    }
+
     const normalizedFoundedYear = getNormalizedFoundedYear(foundedYear, founded);
     const normalizedColors = getNormalizedColors({ colors, primaryColor, secondaryColor }) || {
       primary: '#3b82f6',
       secondary: '#ffffff'
     };
 
-    const newClub = new Club({
+    const clubPayload = {
       name,
       island: island || 'Açores',
       stadium,
@@ -149,10 +248,29 @@ exports.createClub = async (req, res) => {
       description,
       logo: logo || '⚽',
       colors: normalizedColors
-    });
+    };
 
-    await newClub.save();
-    await attachClubToCompetition(newClub._id, competitionId);
+    const persistClub = async () => {
+      const newClub = await Club.create(clubPayload);
+
+      try {
+        await attachClubToCompetition(newClub._id, normalizedCompetitionId);
+      } catch (error) {
+        await Club.findByIdAndDelete(newClub._id).catch(() => {});
+        throw error;
+      }
+
+      return newClub;
+    };
+
+    const newClub = await withOptionalTransaction(
+      async (session) => {
+        const [createdClub] = await Club.create([clubPayload], { session });
+        await attachClubToCompetition(createdClub._id, normalizedCompetitionId, session);
+        return createdClub;
+      },
+      persistClub
+    );
 
     res.status(201).json({
       success: true,
@@ -207,6 +325,31 @@ exports.updateClub = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, island, stadium, foundedYear, founded, description, logo, colors, primaryColor, secondaryColor, competitionId } = req.body;
+    const normalizedCompetitionId = typeof competitionId === 'string' ? competitionId.trim() : competitionId;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de clube inválido'
+      });
+    }
+
+    if (normalizedCompetitionId) {
+      if (!isValidObjectId(normalizedCompetitionId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'ID de competição inválido'
+        });
+      }
+
+      const competition = await Competition.findById(normalizedCompetitionId).select('_id').lean();
+      if (!competition) {
+        return res.status(404).json({
+          success: false,
+          message: 'Competição não encontrada'
+        });
+      }
+    }
 
     const club = await Club.findById(id);
     if (!club) {
@@ -246,7 +389,7 @@ exports.updateClub = async (req, res) => {
     club.updatedAt = new Date();
 
     await club.save();
-    await attachClubToCompetition(club._id, competitionId);
+    await attachClubToCompetition(club._id, normalizedCompetitionId);
 
     res.json({
       success: true,
@@ -271,13 +414,23 @@ exports.deleteClub = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const club = await Club.findByIdAndDelete(id);
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de clube inválido'
+      });
+    }
+
+    const club = await Club.findById(id);
     if (!club) {
       return res.status(404).json({
         success: false,
         message: 'Clube não encontrado'
       });
     }
+
+    await removeClubFromCompetitions(club._id);
+    await club.deleteOne();
 
     res.json({
       success: true,

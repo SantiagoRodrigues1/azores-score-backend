@@ -99,7 +99,7 @@ exports.updateUser = async (req, res) => {
 
     if (name) user.name = name;
     if (email) user.email = email;
-    if (role && ['fan', 'referee', 'club_manager', 'team_manager', 'admin'].includes(role)) {
+    if (role && ['fan', 'referee', 'club_manager', 'team_manager', 'team_president', 'journalist', 'admin'].includes(role)) {
       user.role = role;
     }
 
@@ -129,7 +129,7 @@ exports.updateUserRole = async (req, res) => {
     const { id } = req.params;
     const { role } = req.body;
 
-    const validRoles = ['fan', 'referee', 'club_manager', 'team_manager', 'admin'];
+    const validRoles = ['fan', 'referee', 'club_manager', 'team_manager', 'team_president', 'journalist', 'admin'];
     if (!validRoles.includes(role)) {
       return res.status(400).json({
         success: false,
@@ -263,6 +263,8 @@ exports.getUsersStats = async (req, res) => {
         referee: await User.countDocuments({ role: 'referee' }),
         club_manager: await User.countDocuments({ role: 'club_manager' }),
         team_manager: await User.countDocuments({ role: 'team_manager' }),
+        team_president: await User.countDocuments({ role: 'team_president' }),
+        journalist: await User.countDocuments({ role: 'journalist' }),
         admin: await User.countDocuments({ role: 'admin' })
       },
       byStatus: {

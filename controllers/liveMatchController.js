@@ -50,6 +50,19 @@ exports.startMatch = async (req, res) => {
       match.managerId = req.user.id;
     }
 
+    // EXPLÍCITO: Não permitir start manual a menos que ambas as equipas tenham submetido escalações válidas
+    const Lineup = require('../models/Lineup');
+    const lineups = await Lineup.find({ match: matchId, team: { $in: [match.homeTeam, match.awayTeam] } });
+    const homeLineup = lineups.find(l => String(l.team) === String(match.homeTeam));
+    const awayLineup = lineups.find(l => String(l.team) === String(match.awayTeam));
+
+    if (!homeLineup || !awayLineup || !homeLineup.submitted || !awayLineup.submitted) {
+      return res.status(400).json({
+        success: false,
+        message: 'Ambas as equipas devem submeter escalações válidas antes de iniciar o jogo'
+      });
+    }
+
     // Iniciar jogo
     match.status = 'live';
     await match.save();

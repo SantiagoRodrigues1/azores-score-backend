@@ -6,6 +6,180 @@ const Referee = require('../models/Referee');
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 
+const REQUIRED_REFEREE_TEAM_TYPES = [
+  'Árbitro Principal',
+  'Assistente 1',
+  'Assistente 2',
+  '4º Árbitro'
+];
+
+const REFEREE_TYPE_ALIASES = new Map([
+  ['Árbitro Principal', 'Árbitro Principal'],
+  ['Assistente 1', 'Assistente 1'],
+  ['Árbitro Assistente 1', 'Assistente 1'],
+  ['Assistente 2', 'Assistente 2'],
+  ['Árbitro Assistente 2', 'Assistente 2'],
+  ['4º Árbitro', '4º Árbitro'],
+  ['Quarto Árbitro', '4º Árbitro']
+]);
+
+const MATCH_STATUS_VALUES = new Set([
+  'scheduled',
+  'live',
+  'halftime',
+  'second_half',
+  'finished',
+  'postponed',
+  'cancelled'
+]);
+
+const TIME_PATTERN = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
+
+function createHttpError(message, statusCode = 400) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function isValidObjectId(value) {
+  return Boolean(value) && mongoose.Types.ObjectId.isValid(String(value));
+}
+
+function parseObjectId(value, label) {
+  if (!isValidObjectId(value)) {
+    throw createHttpError(`${label} inválido`);
+  }
+
+  return String(value).trim();
+}
+
+function normalizeRefereeType(tipo) {
+  const normalized = REFEREE_TYPE_ALIASES.get(String(tipo || '').trim());
+
+  if (!normalized) {
+    throw createHttpError(`Função de árbitro inválida: ${tipo}`);
+  }
+
+  return normalized;
+}
+
+function getTeamIdsFromPayload(payload) {
+  return {
+    homeTeamId: payload.homeTeamId || payload.homeTeam,
+    awayTeamId: payload.awayTeamId || payload.awayTeam
+  };
+}
+
+function normalizeCompetitionId(payload) {
+  const rawCompetitionId = payload.competitionId !== undefined
+    ? payload.competitionId
+    : payload.competition;
+
+  if (rawCompetitionId === undefined) {
+    return undefined;
+  }
+
+  if (rawCompetitionId === null || rawCompetitionId === '') {
+    return null;
+  }
+
+  return parseObjectId(rawCompetitionId, 'ID de competição');
+}
+
+function normalizeMatchDate(value) {
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    throw createHttpError('Data do jogo inválida');
+  }
+
+  return parsedDate;
+}
+
+function normalizeMatchTime(value) {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  const normalized = String(value).trim();
+  if (!TIME_PATTERN.test(normalized)) {
+    throw createHttpError('Hora do jogo inválida');
+  }
+
+  return normalized;
+}
+
+async function ensureClubsExist(homeTeamId, awayTeamId) {
+  const clubs = await Club.find({
+    _id: { $in: [homeTeamId, awayTeamId] }
+  }).select('_id').lean();
+
+  if (clubs.length !== 2) {
+    throw createHttpError('Uma ou ambas as equipas não existem', 404);
+  }
+}
+
+async function validateCompetitionOwnership(competitionId, homeTeamId, awayTeamId) {
+  if (!competitionId) {
+    return null;
+  }
+
+  const competition = await Competition.findById(competitionId).select('_id teams name').lean();
+  if (!competition) {
+    throw createHttpError('Competição não encontrada', 404);
+  }
+
+  const competitionTeamIds = new Set((competition.teams || []).map((teamId) => String(teamId)));
+  if (!competitionTeamIds.has(String(homeTeamId)) || !competitionTeamIds.has(String(awayTeamId))) {
+    throw createHttpError('As equipas selecionadas não pertencem ao campeonato escolhido');
+  }
+
+  return competition;
+}
+
+async function normalizeRefereeTeamEntries(refereeTeam) {
+  if (!Array.isArray(refereeTeam) || refereeTeam.length !== 4) {
+    throw createHttpError('É obrigatório selecionar exatamente 4 árbitros para o jogo');
+  }
+
+  const normalizedEntries = refereeTeam.map((entry) => ({
+    referee: parseObjectId(entry.referee, 'ID de árbitro'),
+    tipo: normalizeRefereeType(entry.tipo)
+  }));
+
+  const refereeIds = normalizedEntries.map((entry) => entry.referee);
+  if (new Set(refereeIds).size !== refereeIds.length) {
+    throw createHttpError('Não pode atribuir o mesmo árbitro mais de uma vez ao jogo');
+  }
+
+  const refereeTypes = normalizedEntries.map((entry) => entry.tipo);
+  const hasRequiredTypes = REQUIRED_REFEREE_TEAM_TYPES.every((requiredType) => refereeTypes.includes(requiredType));
+  if (!hasRequiredTypes || new Set(refereeTypes).size !== REQUIRED_REFEREE_TEAM_TYPES.length) {
+    throw createHttpError('A equipa de arbitragem deve conter exatamente Árbitro Principal, Assistente 1, Assistente 2 e 4º Árbitro');
+  }
+
+  const totalReferees = await Referee.countDocuments({
+    _id: { $in: refereeIds }
+  });
+
+  if (totalReferees !== refereeIds.length) {
+    throw createHttpError('Um ou mais árbitros não existem', 404);
+  }
+
+  return normalizedEntries;
+}
+
+function buildLegacyReferees(refereeTeam) {
+  const refereeByType = new Map(refereeTeam.map((entry) => [entry.tipo, entry.referee]));
+
+  return {
+    main: refereeByType.get('Árbitro Principal') || null,
+    assistant1: refereeByType.get('Assistente 1') || null,
+    assistant2: refereeByType.get('Assistente 2') || null,
+    fourthReferee: refereeByType.get('4º Árbitro') || null
+  };
+}
+
 /**
  * GET /api/admin/matches
  * Lista todos os jogos com filtros
@@ -64,101 +238,53 @@ exports.getAllMatches = async (req, res) => {
  */
 exports.createMatch = async (req, res) => {
   try {
-    const { homeTeam, awayTeam, date, time, competition, stadium, referee, refereeTeam } = req.body;
+    const { date, time, stadium, referee, refereeTeam, status } = req.body;
+    const { homeTeamId: rawHomeTeamId, awayTeamId: rawAwayTeamId } = getTeamIdsFromPayload(req.body);
+    const competitionId = normalizeCompetitionId(req.body);
 
-    if (!homeTeam || !awayTeam || !date) {
+    if (!rawHomeTeamId || !rawAwayTeamId || !date) {
       return res.status(400).json({
         success: false,
         message: 'Equipa de casa, equipa visitante e data são obrigatórias'
       });
     }
 
-    if (homeTeam === awayTeam) {
+    const homeTeamId = parseObjectId(rawHomeTeamId, 'ID da equipa da casa');
+    const awayTeamId = parseObjectId(rawAwayTeamId, 'ID da equipa visitante');
+    const normalizedDate = normalizeMatchDate(date);
+    const normalizedTime = normalizeMatchTime(time);
+
+    if (homeTeamId === awayTeamId) {
       return res.status(400).json({
         success: false,
         message: 'A equipa de casa não pode ser a mesma que a visitante'
       });
     }
 
-    // Validar refereeTeam (4 árbitros obrigatórios)
-    if (!refereeTeam || !Array.isArray(refereeTeam) || refereeTeam.length !== 4) {
+    if (status && !MATCH_STATUS_VALUES.has(status)) {
       return res.status(400).json({
         success: false,
-        message: 'É obrigatório selecionar exatamente 4 árbitros para o jogo'
+        message: 'Status do jogo inválido'
       });
     }
 
-    // Validar que cada entrada tem referee e tipo
-    for (const entry of refereeTeam) {
-      if (!entry.referee || !entry.tipo) {
-        return res.status(400).json({
-          success: false,
-          message: 'Cada árbitro deve ter um ID e um tipo/função atribuído'
-        });
-      }
-    }
+    const normalizedRefereeTeam = await normalizeRefereeTeamEntries(refereeTeam);
+    const refereesLegacy = buildLegacyReferees(normalizedRefereeTeam);
 
-    // Validar que não há árbitros duplicados
-    const refereeIds = refereeTeam.map(r => r.referee);
-    if (new Set(refereeIds).size !== refereeIds.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'Não pode atribuir o mesmo árbitro mais de uma vez ao jogo'
-      });
-    }
-
-    const homeTeamExists = await Club.findById(homeTeam);
-    const awayTeamExists = await Club.findById(awayTeam);
-
-    if (!homeTeamExists || !awayTeamExists) {
-      return res.status(404).json({
-        success: false,
-        message: 'Uma ou ambas as equipas não existem'
-      });
-    }
-
-    // Validar ObjectIds
-    let competitionId = null;
-    if (competition) {
-      try {
-        if (mongoose.Types.ObjectId.isValid(competition)) {
-          competitionId = new mongoose.Types.ObjectId(competition);
-        } else {
-          return res.status(400).json({
-            success: false,
-            message: 'ID de competição inválido'
-          });
-        }
-      } catch (e) {
-        return res.status(400).json({
-          success: false,
-          message: 'Competição inválida'
-        });
-      }
-    }
-
-    // Mapear refereeTeam para o campo legacy `referees` (retrocompatibilidade)
-    const refereesLegacy = {};
-    const mainRef = refereeTeam.find(r => r.tipo === 'Árbitro Principal');
-    const ass1 = refereeTeam.find(r => r.tipo === 'Árbitro Assistente 1');
-    const ass2 = refereeTeam.find(r => r.tipo === 'Árbitro Assistente 2');
-    const fourth = refereeTeam.find(r => r.tipo === 'Quarto Árbitro');
-    if (mainRef) refereesLegacy.main = mainRef.referee;
-    if (ass1) refereesLegacy.assistant1 = ass1.referee;
-    if (ass2) refereesLegacy.assistant2 = ass2.referee;
-    if (fourth) refereesLegacy.fourthReferee = fourth.referee;
+    await ensureClubsExist(homeTeamId, awayTeamId);
+    await validateCompetitionOwnership(competitionId, homeTeamId, awayTeamId);
 
     const newMatch = new Match({
-      homeTeam,
-      awayTeam,
-      date,
-      time,
+      homeTeam: homeTeamId,
+      awayTeam: awayTeamId,
+      date: normalizedDate,
+      time: normalizedTime,
       competition: competitionId,
       stadium,
-      referee: mainRef ? mainRef.referee : (referee || null),
+      referee: refereesLegacy.main || (referee ? parseObjectId(referee, 'ID do árbitro principal') : null),
       referees: refereesLegacy,
-      refereeTeam,
-      status: 'scheduled'
+      refereeTeam: normalizedRefereeTeam,
+      status: status || 'scheduled'
     });
 
     await newMatch.save();
@@ -175,7 +301,7 @@ exports.createMatch = async (req, res) => {
     });
   } catch (error) {
     logger.error('Erro ao criar jogo', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: 'Erro ao criar jogo',
       error: error.message
@@ -261,7 +387,14 @@ exports.getMatchById = async (req, res) => {
 exports.updateMatch = async (req, res) => {
   try {
     const { id } = req.params;
-    const { date, time, stadium, referee, attendance, notes, refereeTeam } = req.body;
+    const { date, time, stadium, referee, attendance, notes, refereeTeam, status } = req.body;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID de jogo inválido'
+      });
+    }
 
     const match = await Match.findById(id);
     if (!match) {
@@ -271,28 +404,62 @@ exports.updateMatch = async (req, res) => {
       });
     }
 
-    if (date) match.date = date;
-    if (time) match.time = time;
-    if (stadium) match.stadium = stadium;
-    if (referee) match.referee = referee;
-    if (attendance) match.attendance = attendance;
-    if (notes) match.notes = notes;
+    const { homeTeamId: rawHomeTeamId, awayTeamId: rawAwayTeamId } = getTeamIdsFromPayload(req.body);
+    const nextHomeTeamId = rawHomeTeamId ? parseObjectId(rawHomeTeamId, 'ID da equipa da casa') : String(match.homeTeam);
+    const nextAwayTeamId = rawAwayTeamId ? parseObjectId(rawAwayTeamId, 'ID da equipa visitante') : String(match.awayTeam);
+    const nextCompetitionId = normalizeCompetitionId(req.body);
+    const resolvedCompetitionId = nextCompetitionId === undefined
+      ? (match.competition ? String(match.competition) : null)
+      : nextCompetitionId;
+
+    if (nextHomeTeamId === nextAwayTeamId) {
+      return res.status(400).json({
+        success: false,
+        message: 'A equipa de casa não pode ser a mesma que a visitante'
+      });
+    }
+
+    await ensureClubsExist(nextHomeTeamId, nextAwayTeamId);
+    await validateCompetitionOwnership(resolvedCompetitionId, nextHomeTeamId, nextAwayTeamId);
+
+    if (date !== undefined) match.date = normalizeMatchDate(date);
+    if (time !== undefined) {
+      const normalizedTime = normalizeMatchTime(time);
+      if (normalizedTime !== undefined) {
+        match.time = normalizedTime;
+      }
+    }
+    if (stadium !== undefined) match.stadium = stadium;
+    if (attendance !== undefined) match.attendance = attendance;
+    if (notes !== undefined) match.notes = notes;
+    if (status !== undefined) {
+      if (!MATCH_STATUS_VALUES.has(status)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Status do jogo inválido'
+        });
+      }
+      match.status = status;
+    }
+
+    match.homeTeam = nextHomeTeamId;
+    match.awayTeam = nextAwayTeamId;
+    match.competition = resolvedCompetitionId;
+
+    if (referee !== undefined && referee !== null && referee !== '') {
+      match.referee = parseObjectId(referee, 'ID do árbitro principal');
+    }
 
     // Atualizar equipa de arbitragem se fornecida
-    if (refereeTeam && Array.isArray(refereeTeam) && refereeTeam.length === 4) {
-      match.refereeTeam = refereeTeam;
-      // Atualizar campo legacy
-      const mainRef = refereeTeam.find(r => r.tipo === 'Árbitro Principal');
-      const ass1 = refereeTeam.find(r => r.tipo === 'Árbitro Assistente 1');
-      const ass2 = refereeTeam.find(r => r.tipo === 'Árbitro Assistente 2');
-      const fourth = refereeTeam.find(r => r.tipo === 'Quarto Árbitro');
-      match.referees = {
-        main: mainRef ? mainRef.referee : null,
-        assistant1: ass1 ? ass1.referee : null,
-        assistant2: ass2 ? ass2.referee : null,
-        fourthReferee: fourth ? fourth.referee : null,
-      };
-      if (mainRef) match.referee = mainRef.referee;
+    if (refereeTeam !== undefined) {
+      const normalizedRefereeTeam = await normalizeRefereeTeamEntries(refereeTeam);
+      const legacyReferees = buildLegacyReferees(normalizedRefereeTeam);
+
+      match.refereeTeam = normalizedRefereeTeam;
+      match.referees = legacyReferees;
+      if (legacyReferees.main) {
+        match.referee = legacyReferees.main;
+      }
     }
 
     match.updatedAt = new Date();
@@ -306,7 +473,7 @@ exports.updateMatch = async (req, res) => {
     });
   } catch (error) {
     logger.error('Erro ao atualizar jogo', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: 'Erro ao atualizar jogo',
       error: error.message
@@ -462,6 +629,10 @@ exports.assignReferees = async (req, res) => {
     const { id } = req.params;
     const { main, assistant1, assistant2, fourthReferee, refereeTeam } = req.body;
 
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({ success: false, message: 'ID de jogo inválido' });
+    }
+
     const match = await Match.findById(id);
     if (!match) {
       return res.status(404).json({ success: false, message: 'Jogo não encontrado' });
@@ -469,27 +640,25 @@ exports.assignReferees = async (req, res) => {
 
     // Novo formato: refereeTeam array com 4 entradas
     if (refereeTeam && Array.isArray(refereeTeam) && refereeTeam.length === 4) {
-      match.refereeTeam = refereeTeam;
-      const mainRef = refereeTeam.find(r => r.tipo === 'Árbitro Principal');
-      const ass1 = refereeTeam.find(r => r.tipo === 'Árbitro Assistente 1');
-      const ass2 = refereeTeam.find(r => r.tipo === 'Árbitro Assistente 2');
-      const fourth = refereeTeam.find(r => r.tipo === 'Quarto Árbitro');
-      match.referees = {
-        main: mainRef ? mainRef.referee : null,
-        assistant1: ass1 ? ass1.referee : null,
-        assistant2: ass2 ? ass2.referee : null,
-        fourthReferee: fourth ? fourth.referee : null,
-      };
-      if (mainRef) match.referee = mainRef.referee;
+      const normalizedRefereeTeam = await normalizeRefereeTeamEntries(refereeTeam);
+      const legacyReferees = buildLegacyReferees(normalizedRefereeTeam);
+
+      match.refereeTeam = normalizedRefereeTeam;
+      match.referees = legacyReferees;
+      if (legacyReferees.main) match.referee = legacyReferees.main;
     } else if (main && assistant1 && assistant2 && fourthReferee) {
       // Formato legacy
-      match.referees = { main, assistant1, assistant2, fourthReferee };
-      match.referee = main;
-      match.refereeTeam = [
+      const normalizedRefereeTeam = await normalizeRefereeTeamEntries([
         { referee: main, tipo: 'Árbitro Principal' },
-        { referee: assistant1, tipo: 'Árbitro Assistente 1' },
-        { referee: assistant2, tipo: 'Árbitro Assistente 2' },
-        { referee: fourthReferee, tipo: 'Quarto Árbitro' },
+        { referee: assistant1, tipo: 'Assistente 1' },
+        { referee: assistant2, tipo: 'Assistente 2' },
+        { referee: fourthReferee, tipo: '4º Árbitro' },
+      ]);
+
+      match.referees = buildLegacyReferees(normalizedRefereeTeam);
+      match.referee = match.referees.main;
+      match.refereeTeam = [
+        ...normalizedRefereeTeam
       ];
     } else {
       return res.status(400).json({
@@ -513,7 +682,7 @@ exports.assignReferees = async (req, res) => {
     });
   } catch (error) {
     logger.error('Erro ao atribuir árbitros', error);
-    res.status(500).json({
+    res.status(error.statusCode || 500).json({
       success: false,
       message: 'Erro ao atribuir árbitros',
       error: error.message

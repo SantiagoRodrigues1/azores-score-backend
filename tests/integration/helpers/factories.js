@@ -1,4 +1,6 @@
+const mongoose = require('mongoose');
 const Club = require('../../../models/Club');
+const Lineup = require('../../../models/Lineup');
 const Match = require('../../../models/Match');
 const Player = require('../../../models/Player');
 const User = require('../../../models/User');
@@ -61,5 +63,41 @@ module.exports = {
   createAuthHeader,
   createClub,
   createPlayer,
-  createMatch
+  createMatch,
+  createLineup
 };
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
+
+function buildDefaultStarters() {
+  const positions = [
+    'goalkeeper',
+    'defender', 'defender', 'defender', 'defender',
+    'midfielder', 'midfielder', 'midfielder',
+    'forward', 'forward', 'forward'
+  ];
+  return positions.map((position, i) => ({
+    playerId: new mongoose.Types.ObjectId(),
+    playerName: `Player ${i + 1}`,
+    playerNumber: i + 1,
+    position,
+    formationPosition: `slot${i + 1}`,
+    isCaptain: i === 0,
+    isViceCaptain: i === 1
+  }));
+}
+
+async function createLineup(overrides = {}) {
+  const isSubmitted = overrides.submitted !== false;
+  return Lineup.create({
+    match: overrides.match,
+    team: overrides.team,
+    createdBy: overrides.createdBy,
+    formation: overrides.formation || '4-3-3',
+    starters: overrides.starters || buildDefaultStarters(),
+    substitutes: overrides.substitutes || [],
+    submitted: isSubmitted,
+    status: isSubmitted ? 'submitted' : 'draft',
+    submittedAt: isSubmitted ? new Date() : null
+  });
+}

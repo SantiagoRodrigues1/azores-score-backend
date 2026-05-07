@@ -13,6 +13,7 @@ const { getClient } = require('../config/db');
 const { isClubManagerRole } = require('../utils/accessControl');
 const logger = require('../utils/logger');
 const teamService = require('../services/teamService');
+const { closePendingEditRequestsForPlayer, recordAdminPlayerAudit } = require('../services/playerAdminWorkflowService');
 
 function getPlayerPhoto(player) {
   return player.photo || player.image || '';
@@ -296,6 +297,8 @@ exports.updatePlayer = async (req, res) => {
       });
     }
 
+    const before = req.user.role === 'admin' ? player.toObject() : null;
+
     // Se mudar número, validar
     if (numero && numero !== player.numero.toString()) {
       if (isNaN(numero) || numero < 1 || numero > 99) {
@@ -324,15 +327,35 @@ exports.updatePlayer = async (req, res) => {
     if (name) player.name = name.trim();
     if (numero) player.numero = numero.toString();
     if (position) player.position = position;
-    if (email) player.email = email.toLowerCase().trim();
-    if (photoUrl || photo) {
-      player.photo = photoUrl || photo;
-      player.image = photoUrl || photo;
+    if (email !== undefined) player.email = email ? email.toLowerCase().trim() : '';
+    if (photoUrl !== undefined || photo !== undefined) {
+      player.photo = photoUrl || photo || '';
+      player.image = photoUrl || photo || '';
     }
     if (goals !== undefined) player.goals = goals;
     if (assists !== undefined) player.assists = assists;
 
     await player.save();
+
+    if (req.user.role === 'admin') {
+      await closePendingEditRequestsForPlayer(
+        player._id,
+        req.user.id,
+        'Pedido fechado automaticamente após alteração administrativa direta.'
+      );
+
+      await recordAdminPlayerAudit({
+        action: 'UPDATE',
+        actor: req.user,
+        before,
+        after: player,
+        requestMeta: {
+          ipAddress: req.ip,
+          userAgent: req.get('user-agent')
+        },
+        description: 'Jogador atualizado diretamente pela administração.'
+      });
+    }
 
     res.json({
       success: true,
@@ -384,8 +407,31 @@ exports.deletePlayer = async (req, res) => {
       });
     }
 
+    const before = req.user.role === 'admin' ? player.toObject() : null;
+
+    if (req.user.role === 'admin') {
+      await closePendingEditRequestsForPlayer(
+        player._id,
+        req.user.id,
+        'Pedido fechado automaticamente porque o jogador foi removido pela administração.'
+      );
+    }
+
     // Remover
     await Player.findByIdAndDelete(playerId);
+
+    if (req.user.role === 'admin') {
+      await recordAdminPlayerAudit({
+        action: 'DELETE',
+        actor: req.user,
+        before,
+        requestMeta: {
+          ipAddress: req.ip,
+          userAgent: req.get('user-agent')
+        },
+        description: 'Jogador removido diretamente pela administração.'
+      });
+    }
 
     res.json({
       success: true,

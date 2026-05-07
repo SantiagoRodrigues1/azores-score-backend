@@ -82,6 +82,17 @@ const LineupSchema = new mongoose.Schema({
     default: 'draft'
   },
 
+  // Convenience boolean for quick checks and timestamp when submitted
+  submitted: {
+    type: Boolean,
+    default: false
+  },
+
+  submittedAt: {
+    type: Date,
+    default: null
+  },
+
   // Timestamps
   createdAt: {
     type: Date,

@@ -6,7 +6,7 @@
  * Variáveis de ambiente necessárias (.env):
  *   EMAIL_USER     – endereço Gmail que envia (ex: santiagoescolaprofissional@gmail.com)
  *   EMAIL_PASS     – App Password do Gmail (não a password normal)
- *   APP_URL        – URL base do frontend (ex: http://localhost:8001)
+ *   APP_URL        – URL base da aplicação (ex: http://localhost:8001)
  *
  * Para obter uma App Password do Gmail:
  *   1. Activar verificação em dois passos na conta Google
@@ -145,9 +145,8 @@ function buildVerificationEmailHtml(userName, verifyUrl) {
  * @returns {Promise<void>}
  */
 async function sendVerificationEmail(toEmail, userName, verifyToken) {
-  // URL de verificação: apontamos para o frontend que depois chama o backend
   const appUrl = (process.env.APP_URL || 'http://localhost:8001').replace(/\/$/, '');
-  const verifyUrl = `${appUrl}/verify-email?token=${verifyToken}`;
+  const verifyUrl = `${appUrl}/verify-email?token=${encodeURIComponent(verifyToken)}`;
 
   const transporter = createTransporter();
 

@@ -1,8 +1,14 @@
-const crypto = require('crypto');
 const User = require('../models/User');
 const { signJwt } = require('../utils/jwt');
 const { isClubManagerRole, serializeUser } = require('../utils/accessControl');
 const { sendVerificationEmail } = require('../services/emailService');
+const {
+  buildVerifyEmailLookup,
+  canSendVerificationEmails,
+  shouldBypassEmailVerification,
+  buildInitialEmailVerificationState,
+  buildVerificationStateForResend,
+} = require('../services/emailVerificationService');
 
 // ──────────────────────────────────────────────────────────────
 // Helpers
@@ -22,24 +28,6 @@ const generateToken = (user) => {
   
   return signJwt(payload, { expiresIn: process.env.JWT_EXPIRES_IN || '7d' });
 };
-
-/**
- * Gera um token de verificação de email aleatório (hex 32 bytes = 64 chars)
- * e define a sua data de expiração (24 horas a partir de agora).
- */
-function generateVerifyToken() {
-  const token   = crypto.randomBytes(32).toString('hex');
-  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // +24h
-  return { token, expires };
-}
-
-function canSendVerificationEmails() {
-  return Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS);
-}
-
-function shouldBypassEmailVerification() {
-  return process.env.NODE_ENV !== 'production' && !canSendVerificationEmails();
-}
 
 // ──────────────────────────────────────────────────────────────
 // GET /api/auth/me
@@ -83,20 +71,15 @@ const register = async (req, res) => {
       }
     }
 
-    // Gerar token de verificação de email
-    const { token: verifyToken, expires: verifyExpires } = generateVerifyToken();
+    // Role is always forced to 'fan' on public registration — never trust client-supplied role
+    const userRole = 'fan';
+    const {
+      emailVerified,
+      emailVerifyToken,
+      emailVerifyExpires,
+      verificationRawToken,
+    } = buildInitialEmailVerificationState();
 
-    // Permitir registo imediato para team_manager, club_manager e admin
-    let userRole = req.body.role || 'fan';
-    const bypassRoles = ['team_manager', 'club_manager', 'admin'];
-    let emailVerified = bypassEmailVerification;
-    let emailVerifyToken = bypassEmailVerification ? null : verifyToken;
-    let emailVerifyExpires = bypassEmailVerification ? null : verifyExpires;
-    if (bypassRoles.includes(userRole)) {
-      emailVerified = true;
-      emailVerifyToken = null;
-      emailVerifyExpires = null;
-    }
     const user = new User({ 
       name, 
       username:           username || undefined,
@@ -129,11 +112,11 @@ const register = async (req, res) => {
     }
 
     // Enviar email de verificação (não bloqueia a resposta se falhar)
-    if (canSendVerificationEmails()) {
-      sendVerificationEmail(email, name, verifyToken).catch((err) => {
+    if (verificationRawToken && canSendVerificationEmails()) {
+      sendVerificationEmail(email, name, verificationRawToken).catch((err) => {
         console.error('[EmailService] Falha ao enviar email de verificação:', err.message);
       });
-    } else {
+    } else if (!shouldBypassEmailVerification()) {
       console.warn('[EmailService] EMAIL_USER / EMAIL_PASS não configurados – email de verificação não enviado.');
     }
 
@@ -162,10 +145,7 @@ const verifyEmail = async (req, res) => {
     }
 
     // Procurar utilizador com este token que ainda não expirou
-    const user = await User.findOne({
-      emailVerifyToken:   token,
-      emailVerifyExpires: { $gt: new Date() }, // ainda dentro do prazo
-    }).populate('assignedTeam');
+    const user = await User.findOne(buildVerifyEmailLookup(token)).populate('assignedTeam');
 
     if (!user) {
       return res.status(400).json({
@@ -216,14 +196,13 @@ const resendVerification = async (req, res) => {
       return res.json({ success: true, message: genericMsg });
     }
 
-    // Gerar novo token
-    const { token: newToken, expires: newExpires } = generateVerifyToken();
-    user.emailVerifyToken   = newToken;
-    user.emailVerifyExpires = newExpires;
+    const { emailVerifyToken, emailVerifyExpires, verificationRawToken } = buildVerificationStateForResend();
+    user.emailVerifyToken = emailVerifyToken;
+    user.emailVerifyExpires = emailVerifyExpires;
     await user.save();
 
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-      sendVerificationEmail(email, user.name, newToken).catch((err) => {
+    if (verificationRawToken && canSendVerificationEmails()) {
+      sendVerificationEmail(email, user.name, verificationRawToken).catch((err) => {
         console.error('[EmailService] Falha ao reenviar email de verificação:', err.message);
       });
     }
@@ -258,26 +237,14 @@ const login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Email ou password incorretos' });
     }
 
-    // Permitir login sem email verificado para team_manager, club_manager, admin e utilizadores antigos
-    if (!user.emailVerified) {
-      const bypassRoles = ['team_manager', 'club_manager', 'admin'];
-      const EMAIL_VERIFICATION_CUTOFF = new Date('2024-04-01T00:00:00Z');
-      if (
-        shouldBypassEmailVerification() ||
-        bypassRoles.includes(user.role) ||
-        (user.createdAt && user.createdAt < EMAIL_VERIFICATION_CUTOFF)
-      ) {
-        user.emailVerified = true;
-        user.emailVerifyToken = null;
-        user.emailVerifyExpires = null;
-        await user.save();
-      } else {
-        return res.status(403).json({
-          success: false,
-          message: 'Por favor verifica o teu email antes de fazer login.',
-          emailNotVerified: true,
-        });
-      }
+    // Só bloqueia login quando o utilizador está explicitamente não verificado.
+    // Compatibilidade com contas antigas sem campo: undefined continua a entrar.
+    if (user.emailVerified === false) {
+      return res.status(403).json({
+        success: false,
+        message: 'Por favor verifica o teu email antes de fazer login.',
+        emailNotVerified: true,
+      });
     }
 
     if (user.status === 'suspended') {

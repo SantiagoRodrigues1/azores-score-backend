@@ -22,6 +22,8 @@ exports.getDashboardStats = async (req, res) => {
           referee: await User.countDocuments({ role: 'referee' }),
           club_manager: await User.countDocuments({ role: 'club_manager' }),
           team_manager: await User.countDocuments({ role: 'team_manager' }),
+          team_president: await User.countDocuments({ role: 'team_president' }),
+          journalist: await User.countDocuments({ role: 'journalist' }),
           admin: await User.countDocuments({ role: 'admin' })
         },
         active: await User.countDocuments({ status: 'active' }),

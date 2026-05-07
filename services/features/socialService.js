@@ -65,7 +65,7 @@ async function addComment({ entityType, entityId, author, content, parentComment
 
   await notifyCommentTargets({ entityType, entityId, author, parentCommentId, commentId: comment._id });
 
-  return Comment.findById(comment._id).populate('author', 'name role');
+  return Comment.findById(comment._id).populate('author', 'name role avatar username');
 }
 
 async function notifyEntityOwnerOnLike({ userId, entityType, entityId }) {
@@ -171,7 +171,7 @@ async function notifyCommentTargets({ entityType, entityId, author, parentCommen
 
 async function getComments(entityType, entityId) {
   return Comment.find({ entityType, entityId })
-    .populate('author', 'name role')
+    .populate('author', 'name role avatar username')
     .sort({ createdAt: 1 })
     .lean();
 }

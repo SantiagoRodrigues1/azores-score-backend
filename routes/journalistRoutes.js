@@ -176,7 +176,7 @@ router.get('/admin/users', verifyToken, verifyAdmin, async (req, res) => {
 router.put('/admin/users/:id/role', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { role } = req.body;
-    const validRoles = ['fan', 'referee', 'club_manager', 'team_manager', 'journalist', 'admin'];
+    const validRoles = ['fan', 'referee', 'club_manager', 'team_manager', 'team_president', 'journalist', 'admin'];
 
     if (!role || !validRoles.includes(role)) {
       return res.status(400).json({ success: false, message: 'Role inválido.' });
@@ -207,7 +207,7 @@ router.put('/admin/users/:id/role', verifyToken, verifyAdmin, async (req, res) =
 router.post('/admin/users', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
-    const validRoles = ['fan', 'referee', 'club_manager', 'team_manager', 'journalist', 'admin'];
+    const validRoles = ['fan', 'referee', 'club_manager', 'team_manager', 'team_president', 'journalist', 'admin'];
 
     if (!name || !email || !password) {
       return res.status(400).json({ success: false, message: 'Nome, email e password são obrigatórios.' });

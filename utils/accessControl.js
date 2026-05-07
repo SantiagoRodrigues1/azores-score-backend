@@ -1,4 +1,4 @@
-const CLUB_MANAGER_ROLES = new Set(['club_manager', 'team_manager']);
+const CLUB_MANAGER_ROLES = new Set(['club_manager', 'team_manager', 'team_president']);
 const PREMIUM_ACTIVE_STATUSES = new Set(['active', 'trialing', 'past_due']);
 
 function isClubManagerRole(role) {

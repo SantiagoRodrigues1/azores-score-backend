@@ -39,6 +39,21 @@ async function resolveTeamMetadata(teamId) {
   };
 }
 
+async function serializeFavorite(favorite) {
+  const teamMeta = await resolveTeamMetadata(favorite.teamId);
+
+  return {
+    id: String(favorite._id),
+    team: {
+      _id: String(favorite.teamId),
+      name: teamMeta?.name || teamMeta?.equipa || 'Equipa',
+      island: teamMeta?.ilha || 'Açores',
+      logo: teamMeta?.logo || '🏆'
+    },
+    notifications: favorite.notifications
+  };
+}
+
 /**
  * POST /api/user/favorites/toggle/:clubId
  * Toggle favorite status for a club
@@ -79,23 +94,27 @@ router.post('/toggle/:clubId', verifyToken, async (req, res) => {
 
     if (existingFavorite) {
       await FavoriteTeam.deleteOne({ _id: existingFavorite._id });
-    } else {
-      await FavoriteTeam.create({ userId, teamId: normalizedTeamId });
-    }
 
-    res.json({
-      success: true,
-      message: existingFavorite ? 'Removido de favoritos' : 'Adicionado aos favoritos',
-      data: {
-        isFavorite: !existingFavorite,
-        team: {
-          _id: teamMeta._id,
-          name: teamMeta.name,
-          island: teamMeta.ilha,
-          logo: teamMeta.logo
+      return res.json({
+        success: true,
+        message: 'Removido de favoritos',
+        data: {
+          isFavorite: false,
+          item: null
         }
-      }
-    });
+      });
+    } else {
+      const favorite = await FavoriteTeam.create({ userId, teamId: normalizedTeamId });
+
+      return res.json({
+        success: true,
+        message: 'Adicionado aos favoritos',
+        data: {
+          isFavorite: true,
+          item: await serializeFavorite(favorite)
+        }
+      });
+    }
   } catch (error) {
     logger.error('Erro ao atualizar favorito', error);
     res.status(500).json({
@@ -114,22 +133,11 @@ router.get('/', verifyToken, async (req, res) => {
   try {
     const userId = req.user.id;
     const favorites = await FavoriteTeam.find({ userId }).lean();
-
-    const teams = await teamService.listTeams();
-    const teamMap = new Map(teams.map((team) => [String(team._id), team]));
+    const serializedFavorites = await Promise.all(favorites.map(serializeFavorite));
 
     res.json({
       success: true,
-      data: favorites.map((favorite) => ({
-        id: favorite._id,
-        team: {
-          _id: String(favorite.teamId),
-          name: teamMap.get(String(favorite.teamId))?.equipa || teamMap.get(String(favorite.teamId))?.name || 'Equipa',
-          island: teamMap.get(String(favorite.teamId))?.ilha || 'Açores',
-          logo: teamMap.get(String(favorite.teamId))?.logo || '🏆'
-        },
-        notifications: favorite.notifications
-      }))
+      data: serializedFavorites
     });
   } catch (error) {
     logger.error('Erro ao obter favoritos', error);
@@ -183,14 +191,14 @@ router.put('/settings/:clubId', verifyToken, async (req, res) => {
     const favorite = await FavoriteTeam.findOneAndUpdate(
       { userId: req.user.id, teamId: normalizedTeamId },
       { notifications: req.body.notifications },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!favorite) {
       return res.status(404).json({ success: false, message: 'Favorito não encontrado' });
     }
 
-    res.json({ success: true, data: favorite });
+    res.json({ success: true, data: await serializeFavorite(favorite) });
   } catch (error) {
     res.status(500).json({ success: false, message: 'Erro ao atualizar notificações', error: error.message });
   }

@@ -8,7 +8,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   avatar: { type: String, default: null },
-  role: { type: String, enum: ['fan', 'referee', 'club_manager', 'team_manager', 'journalist', 'admin'], default: 'fan' },
+  role: { type: String, enum: ['fan', 'referee', 'club_manager', 'team_manager', 'team_president', 'journalist', 'admin'], default: 'fan' },
   plan: { type: String, enum: ['free', 'club_manager', 'premium'], default: function defaultPlan() { return getDefaultPlanForRole(this.role); } },
   stripeCustomerId: { type: String, default: null, index: true, sparse: true },
   stripeSubscriptionId: { type: String, default: null, index: true, sparse: true },
@@ -57,7 +57,7 @@ const userSchema = new mongoose.Schema({
 userSchema.pre('save', async function() {
   this.updatedAt = new Date();
 
-  if (this.role === 'club_manager' || this.role === 'team_manager') {
+  if (this.role === 'club_manager' || this.role === 'team_manager' || this.role === 'team_president') {
     if (this.plan === 'free') {
       this.plan = 'club_manager';
     }

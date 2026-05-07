@@ -50,7 +50,7 @@ class LiveMatchService {
       const match = await Match.findByIdAndUpdate(
         matchId,
         { status: 'live' },
-        { new: true }
+        { returnDocument: 'after' }
       )
         .populate('homeTeam', 'id name logo')
         .populate('awayTeam', 'id name logo');
@@ -193,7 +193,7 @@ class LiveMatchService {
       const match = await Match.findByIdAndUpdate(
         matchId,
         { status: newStatus },
-        { new: true }
+        { returnDocument: 'after' }
       )
         .populate('homeTeam', 'id name logo')
         .populate('awayTeam', 'id name logo');

@@ -3,7 +3,7 @@ const EditRequest = require('../../models/EditRequest');
 const Match = require('../../models/Match');
 const Player = require('../../models/Player');
 const { createTestContext, clearDatabase, destroyTestContext } = require('./helpers/testContext');
-const { createAuthHeader, createClub, createMatch, createPlayer, createUser } = require('./helpers/factories');
+const { createAuthHeader, createClub, createLineup, createMatch, createPlayer, createUser } = require('./helpers/factories');
 
 describe('authorization and workflow integration', () => {
   let app;
@@ -104,6 +104,26 @@ describe('authorization and workflow integration', () => {
     expect(response.status).toBe(403);
   });
 
+  it('allows team presidents to edit players of their own team', async () => {
+    const ownClub = await createClub({ name: 'Team President Club' });
+    const president = await createUser({
+      email: 'president@example.com',
+      role: 'team_president',
+      assignedTeam: ownClub._id
+    });
+    const ownPlayer = await createPlayer({ team: ownClub._id, name: 'Presidente Player', numero: 18 });
+
+    const response = await request(app)
+      .put(`/api/players/${ownPlayer._id}`)
+      .set('Authorization', createAuthHeader(president))
+      .send({ position: 'Avançado' });
+
+    expect(response.status).toBe(200);
+
+    const updatedPlayer = await Player.findById(ownPlayer._id).lean();
+    expect(updatedPlayer.position).toBe('Avançado');
+  });
+
   it('allows only the assigned manager or admin to start a live match', async () => {
     const homeClub = await createClub({ name: 'Santa Clara B' });
     const awayClub = await createClub({ name: 'Angrense' });
@@ -135,6 +155,10 @@ describe('authorization and workflow integration', () => {
       .send();
 
     expect(unrelatedResponse.status).toBe(403);
+
+    // Both teams must have submitted lineups before the match can start
+    await createLineup({ match: match._id, team: homeClub._id, createdBy: eligibleManager._id });
+    await createLineup({ match: match._id, team: awayClub._id, createdBy: eligibleManager._id });
 
     const successResponse = await request(app)
       .post(`/api/live-match/${match._id}/start`)

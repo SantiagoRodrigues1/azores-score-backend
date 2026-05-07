@@ -1,6 +1,7 @@
 const Club = require('../models/Club');
 const Player = require('../models/Player');
 const { parsePagination, buildPagination } = require('../utils/pagination');
+const { closePendingEditRequestsForPlayer, recordAdminPlayerAudit } = require('./playerAdminWorkflowService');
 
 function createHttpError(message, statusCode = 400) {
   const error = new Error(message);
@@ -56,7 +57,7 @@ async function listPlayers(query) {
   };
 }
 
-async function createPlayer(payload) {
+async function createPlayer(payload, context = {}) {
   const { nome, name, numero, number, position, email } = payload;
   const playerName = (nome || name || '').trim();
   const shirtNumber = String(numero || number || '').trim();
@@ -81,17 +82,29 @@ async function createPlayer(payload) {
     numero: shirtNumber,
     position: position || 'Outro',
     email: email || '',
-    team: String(club._id)
+    team: String(club._id),
+    photo: payload.photo || payload.photoUrl || '',
+    image: payload.photo || payload.photoUrl || ''
+  });
+
+  await recordAdminPlayerAudit({
+    action: 'CREATE',
+    actor: context.actor,
+    after: player,
+    requestMeta: context.requestMeta,
+    description: 'Jogador criado diretamente pela administração.'
   });
 
   return player;
 }
 
-async function updatePlayer(playerId, payload) {
+async function updatePlayer(playerId, payload, context = {}) {
   const player = await Player.findById(playerId);
   if (!player) {
     throw createHttpError('Jogador não encontrado.', 404);
   }
+
+  const before = player.toObject();
 
   if (payload.name || payload.nome) {
     const playerName = String(payload.name || payload.nome).trim();
@@ -122,15 +135,57 @@ async function updatePlayer(playerId, payload) {
     player.email = payload.email || '';
   }
 
+  if (payload.photo !== undefined || payload.photoUrl !== undefined) {
+    const photo = payload.photoUrl || payload.photo || '';
+    player.photo = photo;
+    player.image = photo;
+  }
+
   await player.save();
+
+  const actorId = context.actor?.id || context.actor?._id;
+  await closePendingEditRequestsForPlayer(
+    player._id,
+    actorId,
+    'Pedido fechado automaticamente após alteração administrativa direta.'
+  );
+
+  await recordAdminPlayerAudit({
+    action: 'UPDATE',
+    actor: context.actor,
+    before,
+    after: player,
+    requestMeta: context.requestMeta,
+    description: 'Jogador atualizado diretamente pela administração.'
+  });
+
   return player;
 }
 
-async function deletePlayer(playerId) {
-  const player = await Player.findByIdAndDelete(playerId);
+async function deletePlayer(playerId, context = {}) {
+  const player = await Player.findById(playerId);
   if (!player) {
     throw createHttpError('Jogador não encontrado.', 404);
   }
+
+  const before = player.toObject();
+  const actorId = context.actor?.id || context.actor?._id;
+
+  await closePendingEditRequestsForPlayer(
+    player._id,
+    actorId,
+    'Pedido fechado automaticamente porque o jogador foi removido pela administração.'
+  );
+
+  await Player.findByIdAndDelete(playerId);
+
+  await recordAdminPlayerAudit({
+    action: 'DELETE',
+    actor: context.actor,
+    before,
+    requestMeta: context.requestMeta,
+    description: 'Jogador removido diretamente pela administração.'
+  });
 }
 
 module.exports = {

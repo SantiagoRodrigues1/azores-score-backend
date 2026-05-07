@@ -81,6 +81,12 @@ const matchSchema = new mongoose.Schema({
     enum: ['scheduled', 'live', 'halftime', 'second_half', 'finished', 'postponed', 'cancelled'],
     default: 'scheduled'
   },
+  // Pre-match lineup state machine
+  lineupState: {
+    type: String,
+    enum: ['waiting_lineups', 'home_ready', 'away_ready', 'ready_to_start', 'live'],
+    default: 'waiting_lineups'
+  },
   homeScore: {
     type: Number,
     default: 0,

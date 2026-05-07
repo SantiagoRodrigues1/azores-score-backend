@@ -6,6 +6,8 @@
   "scripts": {
     "seed:azores-standings": "node scripts/seedAzoresScoreStandings.js",
     "seed:atlas": "node scripts/migrateToAtlas.js",
+    "migrate:email-verified": "node scripts/migrateEmailVerified.js",
+    "migrate:email-verified:legacy": "node scripts/migrateLegacyEmailVerified.js",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "start": "node server.js"

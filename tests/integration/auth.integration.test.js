@@ -29,7 +29,7 @@ describe('auth integration', () => {
       });
 
     expect(response.status).toBe(201);
-    expect(response.body.user.role).toBe('fan');
+    expect(response.body.data.user.role).toBe('fan');
 
     const savedUser = await User.findOne({ email: 'alice@example.com' }).lean();
     expect(savedUser.role).toBe('fan');

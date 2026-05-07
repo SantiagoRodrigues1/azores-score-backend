@@ -1,6 +1,5 @@
 // middleware/auditLog.js
-const AuditLog = require('../models/AuditLog');
-const logger = require('../utils/logger');
+const { writeAuditLog } = require('../services/auditLogService');
 
 /**
  * Middleware para registar ações administrativas
@@ -8,7 +7,6 @@ const logger = require('../utils/logger');
  */
 function auditLog(action, entity) {
   return async (req, res, next) => {
-    // Intercept response
     const originalSend = res.send;
 
     res.send = async function (data) {
@@ -19,24 +17,21 @@ function auditLog(action, entity) {
           const entityId = req.params.id || responseData.data?._id;
           const entityName = req.body?.name || req.body?.title || entityId;
 
-          await AuditLog.create({
+          await writeAuditLog({
             action,
             entity,
             entityId,
             entityName,
-            userId: req.user?._id,
-            userName: req.user?.name,
-            userEmail: req.user?.email,
-            changes: {
-              after: req.body
+            user: req.user,
+            after: req.body,
+            requestMeta: {
+              ipAddress: req.ip,
+              userAgent: req.get('user-agent')
             },
-            ipAddress: req.ip,
-            userAgent: req.get('user-agent'),
-            status: 'SUCCESS'
           });
         }
-      } catch (err) {
-        logger.error('Erro ao registar audit log', err);
+      } catch (_error) {
+        // Ignore audit failures to avoid blocking successful responses.
       }
 
       originalSend.call(this, data);

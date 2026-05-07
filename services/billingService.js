@@ -38,7 +38,10 @@ function getStripeClient() {
 }
 
 function resolveFrontendBaseUrl(origin) {
-  return process.env.FRONTEND_URL || origin || 'http://localhost:8000';
+  // Prefer the `Origin` header from the request so the user is redirected back
+  // to the frontend that initiated the checkout. Fall back to the configured
+  // `FRONTEND_URL` or localhost for local development.
+  return origin || process.env.FRONTEND_URL || 'http://localhost:8000';
 }
 
 async function getOrCreateCustomer(user) {
@@ -106,8 +109,10 @@ async function createPremiumCheckoutSession({ user, origin }) {
     mode: 'subscription',
     customer: customerId,
     client_reference_id: String(user._id || user.id),
-    success_url: `${frontendBaseUrl}/profile?billing=success&session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${frontendBaseUrl}/profile?billing=canceled`,
+    // Redirect back to the profile page and instruct the frontend to open
+    // the payments tab by adding `tab=payments`.
+    success_url: `${frontendBaseUrl}/profile?billing=success&session_id={CHECKOUT_SESSION_ID}&tab=payments`,
+    cancel_url: `${frontendBaseUrl}/profile?billing=canceled&tab=payments`,
     allow_promotion_codes: true,
     metadata: {
       userId: String(user._id || user.id),
