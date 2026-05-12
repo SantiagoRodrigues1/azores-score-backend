@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const http = require('http');
+const socketService = require('./services/socketService');
 
 const { loadEnv } = require('./config/env');
 const logger = require('./utils/logger');
@@ -206,7 +208,13 @@ async function startServer() {
     const app = createApp();
     const PORT = process.env.PORT || 3000;
 
-    const server = app.listen(PORT, '0.0.0.0', () => {
+    const server = http.createServer(app);
+
+    // Attach Socket.io
+    socketService.init(server);
+    logger.info('Socket.io initialized');
+
+    server.listen(PORT, '0.0.0.0', () => {
       logger.info(`Server running on port ${PORT}`);
     });
 

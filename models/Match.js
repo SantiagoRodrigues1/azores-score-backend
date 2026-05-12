@@ -107,6 +107,11 @@ const matchSchema = new mongoose.Schema({
     required: false
   },
   events: [eventSchema],
+  confirmacoes: [{
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    status: { type: String, enum: ['confirmed', 'unavailable'], required: true },
+    data: { type: Date, default: Date.now }
+  }],
   attendance: {
     type: Number,
     min: 0

@@ -84,7 +84,12 @@ async function createPlayer(payload, context = {}) {
     email: email || '',
     team: String(club._id),
     photo: payload.photo || payload.photoUrl || '',
-    image: payload.photo || payload.photoUrl || ''
+    image: payload.photo || payload.photoUrl || '',
+    age: payload.age != null ? Number(payload.age) : null,
+    nationality: payload.nationality || null,
+    height: payload.height != null ? Number(payload.height) : null,
+    weight: payload.weight != null ? Number(payload.weight) : null,
+    preferredFoot: payload.preferredFoot || null,
   });
 
   await recordAdminPlayerAudit({
@@ -140,6 +145,12 @@ async function updatePlayer(playerId, payload, context = {}) {
     player.photo = photo;
     player.image = photo;
   }
+
+  if (payload.age !== undefined) player.age = payload.age != null ? Number(payload.age) : null;
+  if (payload.nationality !== undefined) player.nationality = payload.nationality || null;
+  if (payload.height !== undefined) player.height = payload.height != null ? Number(payload.height) : null;
+  if (payload.weight !== undefined) player.weight = payload.weight != null ? Number(payload.weight) : null;
+  if (payload.preferredFoot !== undefined) player.preferredFoot = payload.preferredFoot || null;
 
   await player.save();
 

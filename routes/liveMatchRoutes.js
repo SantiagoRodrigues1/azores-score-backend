@@ -3,7 +3,7 @@ const express = require('express');
 const router = express.Router();
 
 // Middleware de autenticação
-const { requireAuth, requireClubManager } = require('../middleware/auth');
+const { requireAuth, requireClubManager, requireRefereeOrClubManager } = require('../middleware/auth');
 
 // Controller
 const liveMatchController = require('../controllers/liveMatchController');
@@ -24,31 +24,31 @@ router.use(requireAuth);
  * POST /live-match/:matchId/start
  * Inicia um jogo
  */
-router.post('/:matchId/start', requireClubManager, liveMatchController.startMatch);
+router.post('/:matchId/start', requireRefereeOrClubManager, liveMatchController.startMatch);
 
 /**
  * POST /live-match/:matchId/event
  * Adiciona um evento ao jogo (golo, cartão, substituição, etc.)
  */
-router.post('/:matchId/event', requireClubManager, liveMatchController.addMatchEvent);
+router.post('/:matchId/event', requireRefereeOrClubManager, liveMatchController.addMatchEvent);
 
 /**
  * POST /live-match/:matchId/status
  * Atualiza o status do jogo (live, halftime, second_half, finished)
  */
-router.post('/:matchId/status', requireClubManager, liveMatchController.updateMatchStatus);
+router.post('/:matchId/status', requireRefereeOrClubManager, liveMatchController.updateMatchStatus);
 
 /**
  * POST /live-match/:matchId/finish
  * Termina o jogo e atualiza classificações
  */
-router.post('/:matchId/finish', requireClubManager, liveMatchController.finishMatch);
+router.post('/:matchId/finish', requireRefereeOrClubManager, liveMatchController.finishMatch);
 
 /**
  * POST /live-match/:matchId/added-time
  * Adiciona tempo adicional ao jogo
  */
-router.post('/:matchId/added-time', requireClubManager, liveMatchController.addAddedTime);
+router.post('/:matchId/added-time', requireRefereeOrClubManager, liveMatchController.addAddedTime);
 
 /**
  * GET /live-match/:matchId

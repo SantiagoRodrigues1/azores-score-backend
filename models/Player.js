@@ -50,6 +50,28 @@ const playerSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  age: {
+    type: Number,
+    default: null
+  },
+  nationality: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  height: {
+    type: Number, // cm
+    default: null
+  },
+  weight: {
+    type: Number, // kg
+    default: null
+  },
+  preferredFoot: {
+    type: String,
+    enum: ['right', 'left', 'both', null],
+    default: null
+  },
   viewsCount: {
     type: Number,
     default: 0

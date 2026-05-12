@@ -1,6 +1,7 @@
 const Notification = require('../../models/Notification');
 const FavoriteTeam = require('../../models/FavoriteTeam');
 const User = require('../../models/User');
+const socketService = require('../socketService');
 
 function buildNotificationDedupeKey({ userId, eventKey, referenceId, actionUrl, fingerprint }) {
   const segments = [String(userId || ''), String(eventKey || ''), String(referenceId || ''), String(actionUrl || ''), String(fingerprint || '')]
@@ -72,6 +73,12 @@ async function createUserNotification({ userId, title, message, type = 'system',
     acaoUrl: actionUrl,
     botaoTexto: meta.buttonText,
     referenciaId: referenceId || null
+  }).then((notification) => {
+    // Push to connected client in real-time
+    try {
+      socketService.emitToUser(String(userId), 'new_notification', notification.toObject());
+    } catch (_) { /* socket may not be initialised yet */ }
+    return notification;
   });
 }
 

@@ -157,6 +157,25 @@ const requireClubManager = (req, res, next) => {
   }
 };
 
+// Allows approved referees OR club managers to control live match state
+const requireRefereeOrClubManager = (req, res, next) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ success: false, message: 'Utilizador não autenticado' });
+    }
+    const isReferee = req.user.role === 'referee' && req.user.refereeStatus === 'approved';
+    if (!isReferee && !hasClubManagerAccess(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Acesso negado. Requer árbitro aprovado ou club manager.'
+      });
+    }
+    next();
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Erro na verificação de acesso' });
+  }
+};
+
 const requirePremium = (req, res, next) => {
   try {
     if (!req.user) {
@@ -180,6 +199,7 @@ const requirePremium = (req, res, next) => {
 module.exports = {
   requireAuth,
   requireClubManager,
+  requireRefereeOrClubManager,
   requirePremium,
   verifyToken,
   verifyAdmin,
