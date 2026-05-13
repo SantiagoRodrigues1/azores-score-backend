@@ -109,12 +109,17 @@ function createApp() {
   if (corsOrigin === '*') {
     app.use(cors({ origin: true, credentials: corsCredentials }));
   } else {
-    const allowed = corsOrigin.split(',').map(o => o.trim());
+    // Build allowed list from CORS_ORIGIN + always include FRONTEND_URL and APP_URL
+    const allowed = new Set([
+      ...corsOrigin.split(',').map(o => o.trim()),
+      process.env.FRONTEND_URL,
+      process.env.APP_URL,
+    ].filter(Boolean));
 
     app.use(cors({
       origin: (origin, cb) => {
         if (!origin) return cb(null, true);
-        if (allowed.includes(origin)) return cb(null, true);
+        if (allowed.has(origin)) return cb(null, true);
         return cb(new Error('Not allowed by CORS'), false);
       },
       credentials: corsCredentials
