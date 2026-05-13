@@ -48,7 +48,7 @@ function hydratePhotoEditRequestValue(payload = {}) {
 exports.newsCreateSchema = Joi.object({
   title: Joi.string().trim().min(5).max(160).required(),
   content: Joi.string().trim().min(20).required(),
-  image: Joi.string().uri().allow(null, ''),
+  image: imageUriOrDataSchema.allow(null, ''),
   category: Joi.string().trim().min(2).max(60).required(),
   tags: Joi.array().items(Joi.string().trim().max(30)).default([])
 });
@@ -56,7 +56,7 @@ exports.newsCreateSchema = Joi.object({
 exports.newsUpdateSchema = Joi.object({
   title: Joi.string().trim().min(5).max(160),
   content: Joi.string().trim().min(20),
-  image: Joi.string().uri().allow(null, ''),
+  image: imageUriOrDataSchema.allow(null, ''),
   category: Joi.string().trim().min(2).max(60),
   tags: Joi.array().items(Joi.string().trim().max(30))
 }).min(1);

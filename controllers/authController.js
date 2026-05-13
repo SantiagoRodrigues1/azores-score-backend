@@ -2,6 +2,7 @@ const User = require('../models/User');
 const { signJwt } = require('../utils/jwt');
 const { isClubManagerRole, serializeUser } = require('../utils/accessControl');
 const { sendVerificationEmail } = require('../services/emailService');
+const logger = require('../utils/logger');
 const {
   buildVerifyEmailLookup,
   canSendVerificationEmails,
@@ -115,11 +116,12 @@ const register = async (req, res) => {
 
     // Enviar email de verificação (não bloqueia a resposta se falhar)
     if (verificationRawToken && canSendVerificationEmails()) {
+      logger.info(`[AuthController] A enviar email de verificação para ${email}`);
       sendVerificationEmail(email, name, verificationRawToken).catch((err) => {
-        console.error('[EmailService] Falha ao enviar email de verificação:', err.message);
+        logger.error(`[AuthController] Falha ao enviar email de verificação para ${email}: ${err.message}\n${err.stack}`);
       });
     } else if (!shouldBypassEmailVerification()) {
-      console.warn('[EmailService] EMAIL_USER / EMAIL_PASS não configurados – email de verificação não enviado.');
+      logger.warn('[AuthController] EMAIL_USER / EMAIL_PASS não configurados – email de verificação não enviado.');
     }
 
     // Sem JWT — utilizador tem de verificar o email antes de entrar
@@ -129,7 +131,7 @@ const register = async (req, res) => {
       emailVerified: false,
     });
   } catch (err) {
-    console.error('[AuthController] register:', err);
+    logger.error(`[AuthController] register: ${err.message}\n${err.stack}`);
     res.status(500).json({ success: false, message: 'Erro interno do servidor' });
   }
 };
@@ -172,7 +174,7 @@ const verifyEmail = async (req, res) => {
       token: jwtToken,
     });
   } catch (err) {
-    console.error('[AuthController] verifyEmail:', err);
+    logger.error(`[AuthController] verifyEmail: ${err.message}\n${err.stack}`);
     res.status(500).json({ success: false, message: 'Erro interno do servidor' });
   }
 };
@@ -204,14 +206,15 @@ const resendVerification = async (req, res) => {
     await user.save();
 
     if (verificationRawToken && canSendVerificationEmails()) {
+      logger.info(`[AuthController] A reenviar email de verificação para ${email}`);
       sendVerificationEmail(email, user.name, verificationRawToken).catch((err) => {
-        console.error('[EmailService] Falha ao reenviar email de verificação:', err.message);
+        logger.error(`[AuthController] Falha ao reenviar email para ${email}: ${err.message}\n${err.stack}`);
       });
     }
 
     res.json({ success: true, message: genericMsg });
   } catch (err) {
-    console.error('[AuthController] resendVerification:', err);
+    logger.error(`[AuthController] resendVerification: ${err.message}\n${err.stack}`);
     res.status(500).json({ success: false, message: 'Erro interno do servidor' });
   }
 };
@@ -267,7 +270,7 @@ const login = async (req, res) => {
       }
     });
   } catch (err) {
-    console.error('[AuthController] login:', err);
+    logger.error(`[AuthController] login: ${err.message}\n${err.stack}`);
     res.status(500).json({ success: false, message: 'Erro interno do servidor' });
   }
 };

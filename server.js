@@ -10,6 +10,7 @@ const { loadEnv } = require('./config/env');
 const logger = require('./utils/logger');
 const { connectDB, closeClient } = require('./config/db');
 const { runAtlasSeed } = require('./services/atlasSeeder');
+const { verifyEmailConfiguration } = require('./services/emailService');
 
 const billingController = require('./controllers/billingController');
 const authController = require('./controllers/authController');
@@ -258,10 +259,15 @@ async function startServer() {
 
     // Attach Socket.io
     socketService.init(server);
+    app.set('io', socketService.getIO());
     logger.info('Socket.io initialized');
 
     server.listen(PORT, '0.0.0.0', () => {
       logger.info(`Server running on port ${PORT}`);
+      // Verificar configuração SMTP no arranque (sem bloquear)
+      verifyEmailConfiguration().catch((err) => {
+        logger.error(`[EmailService] Erro ao verificar SMTP no arranque: ${err.message}`);
+      });
     });
 
     // Graceful shutdown

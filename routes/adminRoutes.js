@@ -12,6 +12,7 @@ const adminMatchController = require('../controllers/adminMatchController');
 const adminRefereeController = require('../controllers/adminRefereeController');
 const adminCompetitionController = require('../controllers/adminCompetitionController');
 const adminDashboardController = require('../controllers/adminDashboardController');
+const adminEmailController = require('../controllers/adminEmailController');
 
 // ==================== MIDDLEWARES GLOBAIS ====================
 // Todos as rotas admin requerem autenticação e permissão de admin
@@ -68,5 +69,11 @@ router.get('/competitions/:id', adminCompetitionController.getCompetitionById);
 router.put('/competitions/:id', adminCompetitionController.updateCompetition);
 router.patch('/competitions/:id/teams', adminCompetitionController.updateCompetitionTeams);
 router.delete('/competitions/:id', adminCompetitionController.deleteCompetition);
+
+// ==================== EMAIL / DIAGNÓSTICO ====================
+// GET  /api/admin/email-status  → estado da configuração SMTP
+// POST /api/admin/test-email    → envia email de teste (body: { email })
+router.get('/email-status', adminEmailController.getEmailStatus);
+router.post('/test-email',  adminEmailController.sendTestEmail);
 
 module.exports = router;

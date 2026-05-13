@@ -9,8 +9,26 @@ const { requireAuth, requireClubManager, requireRefereeOrClubManager } = require
 const liveMatchController = require('../controllers/liveMatchController');
 
 /**
+ * GET /live-match/:matchId
+ * Obtém detalhes do jogo com todos os eventos (público, sem auth)
+ */
+router.get('/:matchId', liveMatchController.getPublicMatchDetails);
+
+/**
+ * GET /live-match/:matchId/lineups
+ * Obtém as escalações de ambas as equipas (público)
+ */
+router.get('/:matchId/lineups', liveMatchController.getMatchLineups);
+
+/**
+ * GET /live-match/:matchId/lineup/:teamId
+ * Obtém a escalação de uma equipa específica (público)
+ */
+router.get('/:matchId/lineup/:teamId', liveMatchController.getLineup);
+
+/**
  * ===== PROTEÇÃO DE ROTAS =====
- * Todas as rotas de live match requerem:
+ * Todas as rotas de gestão de live match requerem:
  * - Token JWT válido
  * - Role = "team_manager" ou "admin"
  */
@@ -50,22 +68,6 @@ router.post('/:matchId/finish', requireRefereeOrClubManager, liveMatchController
  */
 router.post('/:matchId/added-time', requireRefereeOrClubManager, liveMatchController.addAddedTime);
 
-/**
- * GET /live-match/:matchId
- * Obtém detalhes do jogo com todos os eventos
- */
-router.get('/:matchId', liveMatchController.getMatchDetails);
 
-/**
- * GET /live-match/:matchId/lineups
- * Obtém as escalações de ambas as equipas
- */
-router.get('/:matchId/lineups', liveMatchController.getMatchLineups);
-
-/**
- * GET /live-match/:matchId/lineup/:teamId
- * Obtém a escalação de uma equipa específica
- */
-router.get('/:matchId/lineup/:teamId', liveMatchController.getLineup);
 
 module.exports = router;

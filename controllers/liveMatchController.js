@@ -399,6 +399,35 @@ exports.finishMatch = async (req, res) => {
  * Obtém detalhes completos do jogo com eventos
  */
 // Método GET - Obter detalhes do jogo
+/**
+ * GET /live-match/:matchId (público, sem autenticação)
+ * Obtém detalhes completos do jogo para visualização pública
+ */
+exports.getPublicMatchDetails = async (req, res) => {
+  try {
+    const { matchId } = req.params;
+
+    if (!matchId) {
+      return res.status(400).json({ success: false, message: 'ID do jogo é obrigatório' });
+    }
+
+    const match = await LiveMatchService.getMatchDetails(matchId);
+
+    if (!match) {
+      return res.status(404).json({ success: false, message: 'Jogo não encontrado' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: match,
+      permissions: { canEdit: false }
+    });
+  } catch (error) {
+    logger.error('Erro ao obter detalhes do jogo (público)', error.message);
+    return res.status(500).json({ success: false, message: 'Erro ao carregar jogo' });
+  }
+};
+
 exports.getMatchDetails = async (req, res) => {
   try {
     const { matchId } = req.params;

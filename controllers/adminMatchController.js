@@ -498,8 +498,20 @@ exports.updateMatchScore = async (req, res) => {
       });
     }
 
-    if (homeScore !== undefined) match.homeScore = homeScore;
-    if (awayScore !== undefined) match.awayScore = awayScore;
+    if (homeScore !== undefined) {
+      const parsedHome = parseInt(homeScore, 10);
+      if (isNaN(parsedHome) || parsedHome < 0 || parsedHome > 99) {
+        return res.status(400).json({ success: false, message: 'Resultado inválido: o valor deve estar entre 0 e 99' });
+      }
+      match.homeScore = parsedHome;
+    }
+    if (awayScore !== undefined) {
+      const parsedAway = parseInt(awayScore, 10);
+      if (isNaN(parsedAway) || parsedAway < 0 || parsedAway > 99) {
+        return res.status(400).json({ success: false, message: 'Resultado inválido: o valor deve estar entre 0 e 99' });
+      }
+      match.awayScore = parsedAway;
+    }
     if (status) match.status = status;
     match.updatedAt = new Date();
 
@@ -517,8 +529,7 @@ exports.updateMatchScore = async (req, res) => {
     logger.error('Erro ao atualizar resultado', error);
     res.status(500).json({
       success: false,
-      message: 'Erro ao atualizar resultado',
-      error: error.message
+      message: 'Erro ao atualizar resultado'
     });
   }
 };
@@ -560,11 +571,18 @@ exports.addMatchEvent = async (req, res) => {
     match.events.push(event);
 
     // Atualiza automaticamente o resultado se for golo
-    if (type === 'goal' || type === 'own_goal') {
+    if (type === 'goal') {
       if (match.homeTeam.toString() === team) {
         match.homeScore += 1;
       } else if (match.awayTeam.toString() === team) {
         match.awayScore += 1;
+      }
+    } else if (type === 'own_goal') {
+      // Golo contra: beneficia a equipa adversária
+      if (match.homeTeam.toString() === team) {
+        match.awayScore += 1;
+      } else if (match.awayTeam.toString() === team) {
+        match.homeScore += 1;
       }
     }
 
@@ -583,6 +601,7 @@ exports.addMatchEvent = async (req, res) => {
     logger.error('Erro ao adicionar evento', error);
     res.status(500).json({
       success: false,
+
       message: 'Erro ao adicionar evento',
       error: error.message
     });

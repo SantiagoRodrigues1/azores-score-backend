@@ -95,6 +95,11 @@ router.post('/toggle/:clubId', verifyToken, async (req, res) => {
     if (existingFavorite) {
       await FavoriteTeam.deleteOne({ _id: existingFavorite._id });
 
+      // Sincronizar com User.favoriteTeams
+      await User.findByIdAndUpdate(userId, {
+        $pull: { favoriteTeams: normalizedTeamId }
+      });
+
       return res.json({
         success: true,
         message: 'Removido de favoritos',
@@ -105,6 +110,11 @@ router.post('/toggle/:clubId', verifyToken, async (req, res) => {
       });
     } else {
       const favorite = await FavoriteTeam.create({ userId, teamId: normalizedTeamId });
+
+      // Sincronizar com User.favoriteTeams
+      await User.findByIdAndUpdate(userId, {
+        $addToSet: { favoriteTeams: normalizedTeamId }
+      });
 
       return res.json({
         success: true,
@@ -119,8 +129,7 @@ router.post('/toggle/:clubId', verifyToken, async (req, res) => {
     logger.error('Erro ao atualizar favorito', error);
     res.status(500).json({
       success: false,
-      message: 'Erro ao atualizar favorito',
-      error: error.message
+      message: 'Erro ao atualizar favorito'
     });
   }
 });

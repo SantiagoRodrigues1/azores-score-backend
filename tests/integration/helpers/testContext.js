@@ -29,6 +29,11 @@ async function createTestContext() {
     appInstance = createApp();
   }
 
+  // Remover credenciais de email APÓS o dotenv ter carregado o .env (via server.js).
+  // Força o modo bypass em testes: registo/login funcionam sem SMTP real.
+  delete process.env.EMAIL_USER;
+  delete process.env.EMAIL_PASS;
+
   return {
     app: appInstance
   };
