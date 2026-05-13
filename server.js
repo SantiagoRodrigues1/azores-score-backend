@@ -103,28 +103,35 @@ function createApp() {
   // =======================
   // CORS CONFIG
   // =======================
-  const corsOrigin = process.env.CORS_ORIGIN || '*';
   const corsCredentials = process.env.CORS_CREDENTIALS === 'true';
 
-  if (corsOrigin === '*') {
-    app.use(cors({ origin: true, credentials: corsCredentials }));
-  } else {
-    // Build allowed list from CORS_ORIGIN + always include FRONTEND_URL and APP_URL
-    const allowed = new Set([
-      ...corsOrigin.split(',').map(o => o.trim()),
-      process.env.FRONTEND_URL,
-      process.env.APP_URL,
-    ].filter(Boolean));
+  // Always allow these known production origins regardless of env vars
+  const HARDCODED_ORIGINS = [
+    'https://azoresfootballfrontend.onrender.com',
+    'https://azores-score-frontend.onrender.com',
+    'http://localhost:5173',
+    'http://localhost:8000',
+    'http://localhost:8001',
+  ];
 
-    app.use(cors({
-      origin: (origin, cb) => {
-        if (!origin) return cb(null, true);
-        if (allowed.has(origin)) return cb(null, true);
-        return cb(new Error('Not allowed by CORS'), false);
-      },
-      credentials: corsCredentials
-    }));
-  }
+  const envOrigins = [
+    process.env.CORS_ORIGIN,
+    process.env.FRONTEND_URL,
+    process.env.APP_URL,
+  ]
+    .filter(Boolean)
+    .flatMap(o => o.split(',').map(s => s.trim()));
+
+  const allowed = new Set([...HARDCODED_ORIGINS, ...envOrigins]);
+
+  app.use(cors({
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true); // server-to-server / curl
+      if (allowed.has(origin)) return cb(null, true);
+      return cb(new Error('Not allowed by CORS'), false);
+    },
+    credentials: corsCredentials
+  }));
 
   // =======================
   // BODY PARSERS
