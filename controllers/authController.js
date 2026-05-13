@@ -91,6 +91,8 @@ const register = async (req, res) => {
       emailVerified,
       emailVerifyToken,
       emailVerifyExpires,
+      // Only new accounts (post-feature) require email verification
+      requiresEmailVerification: !bypassEmailVerification,
     });
     await user.save();
     await user.populate('assignedTeam');
@@ -237,9 +239,9 @@ const login = async (req, res) => {
       return res.status(401).json({ success: false, message: 'Email ou password incorretos' });
     }
 
-    // Só bloqueia login quando o utilizador está explicitamente não verificado.
-    // Compatibilidade com contas antigas sem campo: undefined continua a entrar.
-    if (user.emailVerified === false) {
+    // Block login only for accounts created after the email verification feature was introduced.
+    // Existing accounts (requiresEmailVerification === false or undefined) bypass this check.
+    if (user.requiresEmailVerification === true && user.emailVerified !== true) {
       return res.status(403).json({
         success: false,
         message: 'Por favor verifica o teu email antes de fazer login.',

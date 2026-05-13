@@ -48,18 +48,34 @@ exports.createNews = asyncHandler(async (req, res) => {
 });
 
 exports.updateNews = asyncHandler(async (req, res) => {
-  const news = await News.findByIdAndUpdate(req.params.id, req.body, { new: true }).populate('author', 'name role');
+  const news = await News.findById(req.params.id);
   if (!news) {
     return res.status(404).json({ success: false, message: 'Notícia não encontrada' });
   }
-  res.json({ success: true, data: news });
+
+  const isOwner = news.author && news.author.toString() === req.user.id;
+  const isAdmin = req.user.role === 'admin';
+  if (!isOwner && !isAdmin) {
+    return res.status(403).json({ success: false, message: 'Sem permissão para editar esta notícia' });
+  }
+
+  const updated = await News.findByIdAndUpdate(req.params.id, req.body, { new: true }).populate('author', 'name role');
+  res.json({ success: true, data: updated });
 });
 
 exports.deleteNews = asyncHandler(async (req, res) => {
-  const news = await News.findByIdAndDelete(req.params.id);
+  const news = await News.findById(req.params.id);
   if (!news) {
     return res.status(404).json({ success: false, message: 'Notícia não encontrada' });
   }
+
+  const isOwner = news.author && news.author.toString() === req.user.id;
+  const isAdmin = req.user.role === 'admin';
+  if (!isOwner && !isAdmin) {
+    return res.status(403).json({ success: false, message: 'Sem permissão para remover esta notícia' });
+  }
+
+  await news.deleteOne();
   res.json({ success: true, message: 'Notícia removida' });
 });
 

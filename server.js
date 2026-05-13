@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const path = require('path');
 const http = require('http');
 const socketService = require('./services/socketService');
@@ -43,6 +45,8 @@ const refereeRoutes = require('./routes/refereeRoutes');
 const adminRefereeRoutes = require('./routes/adminRefereeRoutes');
 const billingRoutes = require('./routes/billingRoutes');
 const journalistRoutes = require('./routes/journalistRoutes');
+const userProfileRoutes = require('./routes/userProfileRoutes');
+const awardRoutes = require('./routes/awardRoutes');
 
 
 // =======================
@@ -67,6 +71,34 @@ function createApp() {
 
   // Trust proxy (Render)
   app.set('trust proxy', 1);
+
+  // =======================
+  // SECURITY HEADERS
+  // =======================
+  app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' }, // allow image serving from /uploads
+    contentSecurityPolicy: false, // CSP managed by front-end host
+  }));
+
+  // =======================
+  // RATE LIMITING
+  // =======================
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 20,                   // max 20 auth attempts per window per IP
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Demasiadas tentativas. Tente novamente mais tarde.' },
+  });
+  const generalLimiter = rateLimit({
+    windowMs: 60 * 1000,       // 1 minute
+    max: 300,                  // generous limit for regular API use
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  app.use('/api/auth/login', authLimiter);
+  app.use('/api/auth/register', authLimiter);
+  app.use('/api', generalLimiter);
 
   // =======================
   // CORS CONFIG
@@ -127,6 +159,8 @@ function createApp() {
   app.use('/api/lineups', lineupViewRoutes);
 
   app.use('/api/user/favorites', favoritesRoutes);
+  app.use('/api/user', userProfileRoutes);
+  app.use('/api/awards', awardRoutes);
 
   app.use('/api/news', newsRoutes);
   app.use('/api/competitions', competitionRoutes);

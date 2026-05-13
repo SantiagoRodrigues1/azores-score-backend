@@ -41,10 +41,13 @@ const userSchema = new mongoose.Schema({
   // emailVerified    : false enquanto não confirmar
   // emailVerifyToken : token único gerado no registo
   // emailVerifyExpires: expiração do token (24h)
+  // requiresEmailVerification: true apenas para contas criadas após a feature;
+  //   contas antigas ficam com false para não ficarem bloqueadas.
   // ──────────────────────────────────────────────
-  emailVerified:      { type: Boolean, default: false },
-  emailVerifyToken:   { type: String,  default: null, index: true },
-  emailVerifyExpires: { type: Date,    default: null },
+  emailVerified:               { type: Boolean, default: false },
+  emailVerifyToken:            { type: String,  default: null, index: true },
+  emailVerifyExpires:          { type: Date,    default: null },
+  requiresEmailVerification:   { type: Boolean, default: false },
 
   preferences: {
     theme: { type: String, enum: ['light', 'dark', 'system'], default: 'system' }

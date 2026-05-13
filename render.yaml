@@ -1,0 +1,86 @@
+# render.yaml — AzoresScore Backend
+# Infra-as-code para o Render (https://render.com/docs/infrastructure-as-code)
+#
+# Este ficheiro fica na raiz do repositório "azores-score-backend".
+# O Render lê-o automaticamente no primeiro deploy.
+#
+# ════════════════════════════════════════════════════════════════
+#  VARIÁVEIS OBRIGATÓRIAS — definir no Render Dashboard ANTES do deploy:
+#
+#   MONGO_URI        = mongodb+srv://dbUser:<pass>@cluster0.xxxx.mongodb.net/AzoresScorepap?retryWrites=true&w=majority
+#   JWT_SECRET       = (string aleatória longa — usa: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))")
+#   CORS_ORIGIN      = https://azores-score-frontend.onrender.com
+#   FRONTEND_URL     = https://azores-score-frontend.onrender.com
+#   APP_URL          = https://azores-score-frontend.onrender.com
+#   PUBLIC_API_URL   = https://azores-score-backend.onrender.com
+#   EMAIL_USER       = santiagoescolaprofissional@gmail.com
+#   EMAIL_PASS       = (App Password do Gmail — 16 chars sem espaços)
+#
+#  VARIÁVEIS OPCIONAIS (Stripe, Cloudinary):
+#   STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET
+#   CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
+#
+#  ⚠  NUNCA definas MONGO_URI ou JWT_SECRET diretamente neste ficheiro.
+#     Usa sempre o Render Dashboard → Environment → Environment Variables.
+# ════════════════════════════════════════════════════════════════
+
+services:
+  - type: web
+    name: azores-score-backend
+    runtime: node
+    region: frankfurt
+    plan: free
+
+    # Render injeta PORT automaticamente — o servidor usa process.env.PORT || 3000
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /
+
+    envVars:
+      # ── Valores fixos (não sensíveis) ──────────────────────────────────────
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: DEBUG_LOGS
+        value: "false"
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_CREDENTIALS
+        value: "false"
+
+      # ── Secrets e URLs — DEFINE NO RENDER DASHBOARD (não aqui) ───────────
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: PUBLIC_API_URL
+        sync: false
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
+
+      # ── Stripe (opcional) ─────────────────────────────────────────────────
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+
+      # ── Cloudinary (opcional — necessário para uploads em produção) ────────
+      # ⚠  Sem Cloudinary, os uploads ficam no disco efémero do Render
+      #    e são PERDIDOS em cada redeploy. Configura sempre em produção.
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false

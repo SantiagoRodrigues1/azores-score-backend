@@ -232,47 +232,49 @@ exports.confirmPresence = async (req, res) => {
       return res.status(404).json({ error: 'Jogo não encontrado' });
     }
 
-    // Guardar confirmação (pode ser armazenada num array de confirmações)
-    if (!match.confirmacoes) {
-      match.confirmacoes = [];
-    }
-
     const userId = req.user.id;
-    
-    // Remover confirmação anterior se existir
-    match.confirmacoes = match.confirmacoes.filter(c => c.userId.toString() !== userId);
-    
+
+    // Remover confirmação anterior (operação atómica, sem full-document validation)
+    await Match.findByIdAndUpdate(
+      matchId,
+      { $pull: { confirmacoes: { userId } } },
+      { runValidators: false }
+    );
+
     // Adicionar nova confirmação
-    match.confirmacoes.push({
-      userId,
-      status,
-      data: new Date()
-    });
+    const updatedMatch = await Match.findByIdAndUpdate(
+      matchId,
+      { $push: { confirmacoes: { userId, status, data: new Date() } } },
+      { new: true, runValidators: false }
+    );
 
-    await match.save();
+    // Notificar admins (sem bloquear a resposta em caso de falha)
+    try {
+      const admins = await User.find({ role: 'admin' });
+      const mensagem = status === 'confirmed' 
+        ? `Árbitro confirmou presença no jogo ${match._id}`
+        : `Árbitro indicou indisponibilidade para o jogo ${match._id}`;
+      const now = Date.now();
 
-    // Notificar admins
-    const admins = await User.find({ role: 'admin' });
-    const mensagem = status === 'confirmed' 
-      ? `Árbitro confirmou presença no jogo ${match._id}`
-      : `Árbitro indicou indisponibilidade para o jogo ${match._id}`;
-
-    for (const admin of admins) {
-      const notification = new Notification({
+      const notifDocs = admins.map(admin => ({
         userId: admin._id,
         tipo: 'jogo_alterado',
         titulo: 'Confirmação de Presença',
         mensagem,
         matchId: match._id,
-        icone: status === 'confirmed' ? 'check' : 'alert'
-      });
-      
-      await notification.save();
+        icone: status === 'confirmed' ? 'check' : 'alert',
+        // dedupeKey único por admin + jogo + evento para evitar E11000
+        dedupeKey: `confirm-${match._id}-${admin._id}-${now}`
+      }));
+
+      await Notification.insertMany(notifDocs, { ordered: false });
+    } catch (notifError) {
+      logger.warn('Erro ao criar notificações de confirmação', notifError?.message || notifError);
     }
 
     res.json({
       message: `Presença ${status === 'confirmed' ? 'confirmada' : 'marcada como indisponível'}`,
-      match
+      match: updatedMatch
     });
 
   } catch (error) {

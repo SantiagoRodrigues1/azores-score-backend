@@ -2,6 +2,7 @@
 const { MongoClient } = require('mongodb');
 const { loadEnv, getMongoUri } = require('../config/env');
 const logger = require('../utils/logger');
+const Standing = require('../models/Standing');
 
 loadEnv();
 
@@ -202,6 +203,62 @@ function buildAzoresUpcomingMatches(matches = [], clubs = []) {
   return upcomingMatches.length ? [{ jogos: upcomingMatches }] : [];
 }
 
+/**
+ * Builds azores_score standings from the Standing mongoose model (updated on match finish).
+ * This is the PRIMARY source of truth when live match data is available.
+ */
+async function buildAzoresScoreFromStandingModel() {
+  try {
+    const allStandings = await Standing.find({}).sort({ points: -1, goalDifference: -1, goalsFor: -1 }).lean();
+    if (!allStandings.length) return null;
+
+    // Group by league+season and pick the most recently updated group
+    const grouped = new Map();
+    for (const s of allStandings) {
+      const key = `${s.league}::${s.season}`;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push(s);
+    }
+
+    // Use the group with the most recent lastUpdated
+    let bestGroup = null;
+    let bestTime = 0;
+    for (const [, entries] of grouped) {
+      const latest = Math.max(...entries.map((e) => new Date(e.lastUpdated || e.updatedAt || 0).getTime()));
+      if (latest > bestTime) { bestTime = latest; bestGroup = entries; }
+    }
+
+    if (!bestGroup || !bestGroup.length) return null;
+
+    // Sort by position
+    bestGroup.sort((a, b) => a.position - b.position);
+
+    const classificacao = bestGroup.map((s, idx) => ({
+      posicao: String(idx + 1),
+      equipa: s.team,
+      pontos: String(s.points),
+      jogos: String(s.played),
+      vitorias: String(s.won),
+      empates: String(s.drawn),
+      derrotas: String(s.lost),
+      golos: `${s.goalsFor}-${s.goalsAgainst}`,
+      diferenca: String(s.goalDifference)
+    }));
+
+    return {
+      campeonato: 'azores_score',
+      temporada: bestGroup[0].season,
+      classificacao,
+      melhores_marcadores: [],
+      proximos_jogos: [],
+      data_extracao: new Date(bestTime).toISOString(),
+      status: 'live_standings'
+    };
+  } catch (_error) {
+    return null;
+  }
+}
+
 async function buildAzoresScoreFromMatches(mongo) {
   try {
     const database = mongo.db('azores_score');
@@ -328,7 +385,10 @@ exports.getStandings = async (req, res) => {
 
     const hasRealAzores = resultadoFinal.some((entry) => entry.campeonato === 'azores_score' && hasStandingsData(entry));
     if (!hasRealAzores && (!campeonato || campeonato === 'azores_score')) {
-      const generatedAzores = await buildAzoresScoreFromMatches(mongo);
+      // 1st priority: Standing model populated by finishMatch (live match data)
+      const liveModelData = await buildAzoresScoreFromStandingModel();
+      // 2nd priority: recalculate from raw matches in azores_score DB
+      const generatedAzores = liveModelData || await buildAzoresScoreFromMatches(mongo);
       const fallbackAzores = generatedAzores || buildSyntheticAzoresAggregate(resultadoFinal);
 
       if (fallbackAzores) {

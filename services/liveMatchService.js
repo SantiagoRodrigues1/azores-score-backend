@@ -20,7 +20,7 @@ async function buildEventPlayerSnapshot(playerId) {
   }
 
   const Player = mongoose.model('Player');
-  const player = await Player.findById(normalizedId).select('name number');
+  const player = await Player.findById(normalizedId).select('name numero');
 
   if (!player) {
     return {
@@ -30,10 +30,13 @@ async function buildEventPlayerSnapshot(playerId) {
     };
   }
 
+  // Player model stores jersey number as `numero` (String). Parse to int for display.
+  const jerseyNumber = player.numero ? (parseInt(player.numero, 10) || player.numero) : null;
+
   return {
     id: player._id.toString(),
     name: player.name || 'Jogador',
-    number: typeof player.number === 'number' ? player.number : null
+    number: jerseyNumber
   };
 }
 
@@ -158,6 +161,20 @@ class LiveMatchService {
 
         event.playerIn = playerInSnapshot;
         event.playerOut = playerOutSnapshot;
+      } else if (type === 'own_goal') {
+        if (!playerId) {
+          throw new Error('Jogador é obrigatório para golo contra');
+        }
+        event.player = await buildEventPlayerSnapshot(playerId);
+        // Own goal scores for the OPPOSING team
+        if (isHomeTeam) {
+          match.awayScore += 1;
+        } else {
+          match.homeScore += 1;
+        }
+        logger.debug(
+          `Own goal: ${match.homeTeam.name} ${match.homeScore} - ${match.awayScore} ${match.awayTeam.name}`
+        );
       }
 
       // Adicionar evento ao jogo
@@ -227,7 +244,15 @@ class LiveMatchService {
     try {
       const match = await Match.findById(matchId)
         .populate('homeTeam')
-        .populate('awayTeam');
+        .populate('awayTeam')
+        .populate('competition', 'name season');
+
+      // Auto-detect league/season from competition when not explicitly provided
+      const resolvedLeague = leagueName || match?.competition?.name || 'azores_score';
+      const currentYear = new Date().getFullYear();
+      const resolvedSeason = season || match?.competition?.season || `${currentYear}/${currentYear + 1}`;
+      leagueName = resolvedLeague;
+      season = resolvedSeason;
 
       if (!match) {
         throw new Error('Jogo não encontrado');

@@ -157,7 +157,7 @@ exports.addMatchEvent = async (req, res) => {
     }
 
     // Validar dados por tipo de evento
-    const validTypes = ['goal', 'yellow_card', 'red_card', 'substitution'];
+    const validTypes = ['goal', 'yellow_card', 'red_card', 'substitution', 'own_goal'];
     if (!validTypes.includes(type)) {
       return res.status(400).json({
         success: false,
@@ -345,15 +345,9 @@ exports.finishMatch = async (req, res) => {
       });
     }
 
-    if (!league || !season) {
-      return res.status(400).json({
-        success: false,
-        message: 'Liga e temporada são obrigatórias'
-      });
-    }
-
+    // league e season são opcionais — o serviço auto-detecta a partir da competição do jogo
     // Terminar jogo e atualizar classificações
-    const match = await LiveMatchService.finishMatch(matchId, league, season);
+    const match = await LiveMatchService.finishMatch(matchId, league || null, season || null);
 
     // Emitir Socket.io event
     const io = req.app.get('io');

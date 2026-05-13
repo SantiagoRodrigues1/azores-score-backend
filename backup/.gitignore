@@ -1,0 +1,6 @@
+# Ficheiros de backup são ignorados pelo git — contêm dados reais da base de dados.
+# Para partilhar um backup, envie o ficheiro manualmente de forma segura.
+*.json
+
+# Manter o próprio .gitignore rastreado
+!.gitignore

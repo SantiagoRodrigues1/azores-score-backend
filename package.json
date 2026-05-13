@@ -8,6 +8,8 @@
     "seed:atlas": "node scripts/migrateToAtlas.js",
     "migrate:email-verified": "node scripts/migrateEmailVerified.js",
     "migrate:email-verified:legacy": "node scripts/migrateLegacyEmailVerified.js",
+    "db:export": "node scripts/exportBackup.js",
+    "db:import": "node scripts/importBackup.js",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
     "start": "node server.js"
@@ -20,6 +22,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "bugs": {
     "url": "https://github.com/SantiagoRodrigues1/azores-score-backend/issues"
   },
@@ -30,6 +35,8 @@
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.5.1",
+    "helmet": "^8.1.0",
     "joi": "^18.1.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.0.0",
