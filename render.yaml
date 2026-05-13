@@ -50,13 +50,13 @@ services:
         value: "false"
       # URLs de deployment — não são secrets
       - key: FRONTEND_URL
-        value: https://azores-score-frontend.onrender.com
+        value: https://azoresfootballfrontend.onrender.com
       - key: APP_URL
-        value: https://azores-score-frontend.onrender.com
+        value: https://azoresfootballfrontend.onrender.com
       - key: PUBLIC_API_URL
         value: https://azores-score-backend.onrender.com
       - key: CORS_ORIGIN
-        value: https://azores-score-frontend.onrender.com
+        value: https://azoresfootballfrontend.onrender.com
 
       # ── Secrets — DEFINE NO RENDER DASHBOARD (nunca aqui) ───────────────
       - key: MONGO_URI
