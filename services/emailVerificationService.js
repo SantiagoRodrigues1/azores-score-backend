@@ -33,8 +33,14 @@ function canSendVerificationEmails() {
   return Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS);
 }
 
+/**
+ * Skip email verification entirely when email credentials are not configured.
+ * This ensures users can always register and log in regardless of the
+ * environment — once EMAIL_USER + EMAIL_PASS are set in the Render Dashboard
+ * (or any other environment), full email verification is enforced automatically.
+ */
 function shouldBypassEmailVerification() {
-  return process.env.NODE_ENV !== 'production' && !canSendVerificationEmails();
+  return !canSendVerificationEmails();
 }
 
 function buildInitialEmailVerificationState() {

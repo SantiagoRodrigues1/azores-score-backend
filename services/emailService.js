@@ -145,7 +145,11 @@ function buildVerificationEmailHtml(userName, verifyUrl) {
  * @returns {Promise<void>}
  */
 async function sendVerificationEmail(toEmail, userName, verifyToken) {
-  const appUrl = (process.env.APP_URL || process.env.FRONTEND_URL || 'http://localhost:8001').replace(/\/$/, '');
+  const appUrl = (
+    process.env.APP_URL ||
+    process.env.FRONTEND_URL ||
+    'https://azores-score-frontend.onrender.com'
+  ).replace(/\/$/, '');
   const verifyUrl = `${appUrl}/verify-email?token=${encodeURIComponent(verifyToken)}`;
 
   const transporter = createTransporter();

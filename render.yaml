@@ -48,19 +48,20 @@ services:
         value: 7d
       - key: CORS_CREDENTIALS
         value: "false"
+      # URLs de deployment — não são secrets
+      - key: FRONTEND_URL
+        value: https://azores-score-frontend.onrender.com
+      - key: APP_URL
+        value: https://azores-score-frontend.onrender.com
+      - key: PUBLIC_API_URL
+        value: https://azores-score-backend.onrender.com
+      - key: CORS_ORIGIN
+        value: https://azores-score-frontend.onrender.com
 
-      # ── Secrets e URLs — DEFINE NO RENDER DASHBOARD (não aqui) ───────────
+      # ── Secrets — DEFINE NO RENDER DASHBOARD (nunca aqui) ───────────────
       - key: MONGO_URI
         sync: false
       - key: JWT_SECRET
-        sync: false
-      - key: CORS_ORIGIN
-        sync: false
-      - key: FRONTEND_URL
-        sync: false
-      - key: APP_URL
-        sync: false
-      - key: PUBLIC_API_URL
         sync: false
       - key: EMAIL_USER
         sync: false
