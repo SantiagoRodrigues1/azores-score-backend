@@ -18,9 +18,11 @@ router.get('/match/:matchId/all', async (req, res) => {
     // Get the match
     const match = await Match.findById(matchId).populate('homeTeam awayTeam');
     if (!match) {
-      return res.status(404).json({
-        success: false,
-        message: 'Jogo não encontrado'
+      // Return empty lineup data instead of 404 so the frontend card renders
+      // gracefully when the match hasn't been created via the admin panel yet.
+      return res.json({
+        success: true,
+        data: { match: null, lineups: [] }
       });
     }
 
