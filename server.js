@@ -48,6 +48,7 @@ const billingRoutes = require('./routes/billingRoutes');
 const journalistRoutes = require('./routes/journalistRoutes');
 const userProfileRoutes = require('./routes/userProfileRoutes');
 const awardRoutes = require('./routes/awardRoutes');
+const internalRoutes = require('./routes/internalRoutes');
 
 
 // =======================
@@ -200,6 +201,9 @@ function createApp() {
   app.use('/api/matches-by-competition', matchesRoutes);
   app.use('/api/players', playerRoutes);
   app.use('/api', teamsRouter);
+
+  // Internal diagnostic routes (secure via INTERNAL_TEST_EMAIL_SECRET)
+  app.use('/internal', internalRoutes);
 
   // =======================
   // HEALTH CHECK
