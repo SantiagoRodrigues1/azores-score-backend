@@ -1,8 +1,24 @@
 // services/liveMatchService.js
 const Match = require('../models/Match');
 const Standing = require('../models/Standing');
+const Club = require('../models/Club');
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
+
+async function resolveAssignedTeamId(rawAssignedTeam) {
+  if (!rawAssignedTeam) {
+    return null;
+  }
+
+  const value = String(rawAssignedTeam);
+
+  if (mongoose.Types.ObjectId.isValid(value)) {
+    return value;
+  }
+
+  const club = await Club.findOne({ name: value }).select('_id').lean();
+  return club?._id ? String(club._id) : null;
+}
 
 async function buildEventPlayerSnapshot(playerId) {
   if (!playerId) {
@@ -505,7 +521,7 @@ class LiveMatchService {
       }
 
       // Gestores de equipa só podem gerir seus jogos
-      const managerTeamId = user.assignedTeam;
+      const managerTeamId = await resolveAssignedTeamId(user.assignedTeam);
       const homeTeamStr = match.homeTeam.toString();
       const awayTeamStr = match.awayTeam.toString();
       const assignedTeamStr = managerTeamId?.toString();
@@ -552,7 +568,7 @@ class LiveMatchService {
         throw new Error('Utilizador não encontrado');
       }
 
-      const managerTeamId = user.assignedTeam;
+      const managerTeamId = await resolveAssignedTeamId(user.assignedTeam);
       const homeTeamStr = match.homeTeam.toString();
       const awayTeamStr = match.awayTeam.toString();
       const assignedTeamStr = managerTeamId?.toString();

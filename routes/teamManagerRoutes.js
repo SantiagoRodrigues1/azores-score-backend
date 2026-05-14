@@ -13,6 +13,7 @@ router.get('/matches/:id', teamManagerController.getMatchDetails);
 router.get('/matches', teamManagerController.listMatches);
 router.get('/players', teamManagerController.listPlayers);
 router.get('/dashboard', teamManagerController.getDashboard);
+router.put('/clubs/:id', teamManagerController.updateOwnClub);
 
 /**
  * GET /api/team-manager/players/team/:teamId

@@ -17,6 +17,32 @@ function normalizeTeamId(teamId) {
   return teamId ? String(teamId) : null;
 }
 
+async function resolveAssignedTeam(user) {
+  const rawAssignedTeam = normalizeTeamId(user?.assignedTeam);
+  if (!rawAssignedTeam) {
+    return { teamId: null, teamName: null };
+  }
+
+  const clubById = await Club.findById(rawAssignedTeam).select('_id name').lean();
+  if (clubById) {
+    return {
+      teamId: String(clubById._id),
+      teamName: clubById.name || null
+    };
+  }
+
+  // Legacy user records may store the club name instead of ObjectId.
+  const clubByName = await Club.findOne({ name: rawAssignedTeam }).select('_id name').lean();
+  if (clubByName) {
+    return {
+      teamId: String(clubByName._id),
+      teamName: clubByName.name || null
+    };
+  }
+
+  return { teamId: rawAssignedTeam, teamName: rawAssignedTeam };
+}
+
 function mapMatch(match) {
   return {
     id: String(match._id),
@@ -139,22 +165,26 @@ async function getMatchDetails(user, matchId) {
 async function listMatches(user, query) {
   const { page, limit, skip } = parsePagination(query, { defaultLimit: 10, maxLimit: 50 });
   const filter = {};
+  let resolvedTeamName = null;
 
   if (query.status) {
     filter.status = query.status;
   }
 
   if (isClubManagerRole(user.role) && user.role !== 'admin') {
-    const assignedTeam = normalizeTeamId(user.assignedTeam);
-    if (!assignedTeam) {
+    const { teamId: assignedTeamId, teamName } = await resolveAssignedTeam(user);
+    resolvedTeamName = teamName;
+
+    if (!assignedTeamId) {
       return {
         data: [],
         pagination: buildPagination(0, page, limit),
+        teamName: null,
         message: 'Nenhuma equipa associada'
       };
     }
 
-    filter.$or = [{ homeTeam: assignedTeam }, { awayTeam: assignedTeam }];
+    filter.$or = [{ homeTeam: assignedTeamId }, { awayTeam: assignedTeamId }];
   }
 
   const [matches, total] = await Promise.all([
@@ -172,7 +202,8 @@ async function listMatches(user, query) {
 
   return {
     data: matches.map(mapMatch),
-    pagination: buildPagination(total, page, limit)
+    pagination: buildPagination(total, page, limit),
+    teamName: resolvedTeamName
   };
 }
 
@@ -318,10 +349,83 @@ async function getDashboard(user, query) {
   };
 }
 
+async function updateOwnClub(user, clubId, payload) {
+  if (!isClubManagerRole(user.role)) {
+    throw createHttpError('Acesso negado. Requer perfil de Club Manager.', 403);
+  }
+
+  const { teamId: assignedTeamId } = await resolveAssignedTeam(user);
+  if (!assignedTeamId) {
+    throw createHttpError('Nenhuma equipa associada', 403);
+  }
+
+  if (String(clubId) !== String(assignedTeamId)) {
+    throw createHttpError('Acesso negado. Pode apenas editar o seu clube.', 403);
+  }
+
+  const club = await Club.findById(clubId);
+  if (!club) {
+    throw createHttpError('Clube não encontrado', 404);
+  }
+
+  const {
+    name,
+    island,
+    stadium,
+    foundedYear,
+    founded,
+    description,
+    logo,
+    colors,
+    primaryColor,
+    secondaryColor
+  } = payload || {};
+
+  if (name !== undefined) {
+    const normalizedName = String(name).trim();
+    if (!normalizedName) {
+      throw createHttpError('Nome do clube é obrigatório');
+    }
+
+    const duplicated = await Club.findOne({ _id: { $ne: club._id }, name: normalizedName }).lean();
+    if (duplicated) {
+      throw createHttpError('Clube com este nome já existe', 409);
+    }
+
+    club.name = normalizedName;
+  }
+
+  if (island !== undefined) club.island = island;
+  if (stadium !== undefined) club.stadium = stadium;
+  if (description !== undefined) club.description = description;
+  if (logo !== undefined) club.logo = logo;
+
+  const parsedFoundedYear = Number(foundedYear ?? founded);
+  if (!Number.isNaN(parsedFoundedYear) && Number.isInteger(parsedFoundedYear) && parsedFoundedYear >= 1800) {
+    club.foundedYear = parsedFoundedYear;
+  }
+
+  if (colors && typeof colors === 'object') {
+    club.colors = {
+      primary: colors.primary || club.colors?.primary || '#3b82f6',
+      secondary: colors.secondary || club.colors?.secondary || '#ffffff'
+    };
+  } else if (primaryColor || secondaryColor) {
+    club.colors = {
+      primary: primaryColor || club.colors?.primary || '#3b82f6',
+      secondary: secondaryColor || club.colors?.secondary || '#ffffff'
+    };
+  }
+
+  await club.save();
+  return club;
+}
+
 module.exports = {
   getMatchDetails,
   listMatches,
   listTeamPlayers,
   getDashboard,
+  updateOwnClub,
   createHttpError
 };

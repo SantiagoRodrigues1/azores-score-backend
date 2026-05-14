@@ -38,10 +38,31 @@ function getStripeClient() {
 }
 
 function resolveFrontendBaseUrl(origin) {
-  // Prefer the `Origin` header from the request so the user is redirected back
-  // to the frontend that initiated the checkout. Fall back to the configured
-  // `FRONTEND_URL` or localhost for local development.
-  return origin || process.env.FRONTEND_URL || 'http://localhost:8000';
+  const configuredBaseUrl = process.env.FRONTEND_URL || process.env.APP_URL || 'http://localhost:8000';
+  const deprecatedHosts = new Set(['azoresfootballfrontend.onrender.com']);
+
+  const normalizeBaseUrl = (value) => {
+    if (!value) {
+      return null;
+    }
+
+    try {
+      const parsed = new URL(String(value));
+      const host = String(parsed.hostname || '').toLowerCase();
+
+      if (deprecatedHosts.has(host)) {
+        return null;
+      }
+
+      return `${parsed.protocol}//${parsed.host}`;
+    } catch (_error) {
+      return null;
+    }
+  };
+
+  // Keep origin-based redirects for local/staging flows, but never use a
+  // deprecated frontend host that would break the return from Stripe.
+  return normalizeBaseUrl(origin) || normalizeBaseUrl(configuredBaseUrl) || 'http://localhost:8000';
 }
 
 async function getOrCreateCustomer(user) {

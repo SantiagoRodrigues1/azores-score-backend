@@ -12,7 +12,17 @@ exports.listMatches = asyncHandler(async (req, res) => {
     success: true,
     data: result.data,
     pagination: result.pagination,
+    teamName: result.teamName || null,
     message: result.message
+  });
+});
+
+exports.updateOwnClub = asyncHandler(async (req, res) => {
+  const updatedClub = await teamManagerService.updateOwnClub(req.user, req.params.id, req.body);
+  res.json({
+    success: true,
+    message: 'Clube atualizado com sucesso',
+    data: updatedClub
   });
 });
 
